@@ -1,0 +1,12 @@
+[submodule "SoapyPlutoSDR"]
+	path = SoapyPlutoSDR
+	url = https://github.com/pothosware/SoapyPlutoSDR.git
+[submodule "SoapySDR"]
+	path = SoapySDR
+	url = https://github.com/pothosware/SoapySDR.git
+[submodule "libad9361-iio"]
+	path = libad9361-iio
+	url = https://github.com/analogdevicesinc/libad9361-iio.git
+[submodule "libiio"]
+	path = libiio
+	url = https://github.com/analogdevicesinc/libiio.git

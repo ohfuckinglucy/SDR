@@ -1,0 +1,3 @@
+/home/plutoSDR/Rubtsov/lab2/dev/build/CMakeFiles/main.dir
+/home/plutoSDR/Rubtsov/lab2/dev/build/CMakeFiles/edit_cache.dir
+/home/plutoSDR/Rubtsov/lab2/dev/build/CMakeFiles/rebuild_cache.dir
