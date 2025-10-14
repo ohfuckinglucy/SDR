@@ -44,6 +44,10 @@ for i in range(len(t)):
 
 plt.subplot(2, 1, 1)
 plt.plot(t, sig)
+plt.title("Сигнал")
+plt.xlabel("Время, с")
+plt.ylabel("Амплитуда, А")
+plt.grid(True)
 
 plt.subplot(2, 1, 2)
 plt.scatter([s.real for s in symbols], [s.imag for s in symbols])
