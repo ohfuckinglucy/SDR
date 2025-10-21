@@ -222,8 +222,12 @@ CMakeFiles/main.dir/src/main.cpp.o: ../src/main.cpp \
   /usr/include/complex.h \
   /usr/include/x86_64-linux-gnu/bits/mathdef.h \
   /usr/include/x86_64-linux-gnu/bits/cmathcalls.h \
-  /usr/include/c++/11/math.h
+  /usr/include/c++/11/math.h \
+  /usr/include/string.h \
+  /usr/include/strings.h
 
+
+/usr/include/string.h:
 
 /usr/include/x86_64-linux-gnu/bits/cmathcalls.h:
 
@@ -548,6 +552,8 @@ CMakeFiles/main.dir/src/main.cpp.o: ../src/main.cpp \
 /usr/include/c++/11/ext/new_allocator.h:
 
 /usr/include/x86_64-linux-gnu/bits/thread-shared-types.h:
+
+/usr/include/strings.h:
 
 /usr/include/c++/11/bits/sstream.tcc:
 

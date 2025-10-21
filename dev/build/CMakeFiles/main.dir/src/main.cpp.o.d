@@ -180,4 +180,4 @@ CMakeFiles/main.dir/src/main.cpp.o: \
  /usr/include/c++/11/bits/sstream.tcc /usr/include/complex.h \
  /usr/include/x86_64-linux-gnu/bits/mathdef.h \
  /usr/include/x86_64-linux-gnu/bits/cmathcalls.h \
- /usr/include/c++/11/math.h
+ /usr/include/c++/11/math.h /usr/include/string.h /usr/include/strings.h
