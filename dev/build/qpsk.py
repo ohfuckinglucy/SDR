@@ -20,11 +20,8 @@ def mapper(bits):
 
 # Параметры сигнала
 
-N = 20
+N = 1000
 L = 10
-fs = L * (N // 2) / (N // 2)
-f = fs/32
-t = np.linspace(0, 20, 10000)
 bits = np.random.randint(0, 2, size=N).tolist()
 
 b = np.ones(L)
@@ -45,45 +42,13 @@ for i in range(0, len(I)):
 I_filtered = lfilter(b, a, I_upsampling)
 Q_filtered = lfilter(b, a, Q_upsampling)
 
-t_base = np.arange(len(I_filtered)) / L
+iq = I_filtered + 1j*Q_filtered
 
+pcm_i = (np.real(iq) * 32767).astype(np.int16)
+pcm_q = (np.imag(iq) * 32767).astype(np.int16)
 
-s_rf = I_filtered * np.cos(2*np.pi*f*t_base) + Q_filtered * np.sin(2*np.pi*f*t_base)
+pcm_arr = np.zeros(2 * len(iq), dtype=np.int16)
 
-plt.plot(t_base, s_rf)
-plt.title('Модулированный радиосигнал QPSK')
-plt.xlabel('Время (с)')
-plt.ylabel('Амплитуда')
-plt.grid(True)
-plt.show()
+pcm_arr.tofile("bits.pcm")
 
-# print(f'Исходные биты: {bits}')
-# print(f'Реальная часть: {I}')
-# print(f'Мнимая часть: {Q}')
-# print(f'Апсемплинг I: {I_upsampling}')
-# print(f'Апсемплинг Q: {Q_upsampling}')
-# print(f'Формфильтер I: {I_filtered}')
-# print(f'Формфильтер Q: {Q_filtered}')
-
-plt.plot(I_filtered)
-plt.title('Синфазная компонента после формирующего фильтра')
-plt.xlabel('Отсчёты')
-plt.ylabel('Амплитуда')
-plt.grid(True)
-plt.show()
-
-plt.plot(Q_filtered)
-plt.title('Квадратурная компонента после формирующего фильтра')
-plt.xlabel('Отсчёты')
-plt.ylabel('Амплитуда')
-plt.grid(True)
-plt.show()
-
-indices = np.arange(L//2, len(I_filtered), L)
-plt.scatter(Q_filtered[indices], I_filtered[indices])
-plt.title('Созвездие QPSK')
-plt.xlabel('Q')
-plt.ylabel('I')
-plt.grid(True)
-plt.axis('equal')
-plt.show()
+print(f'Исходные биты: {bits}')
