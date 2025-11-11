@@ -5,6 +5,11 @@
 #include <stdint.h>
 #include <complex.h>
 #include <math.h>
+#include <iostream>
+#include <map>
+#include <string.h>
+
+using namespace std;
 
 struct SDRConfig{
     SoapySDRDevice *sdr;
@@ -58,26 +63,113 @@ struct SDRConfig SDRinit(){
     config.rx_mtu = SoapySDRDevice_getStreamMTU(config.sdr, config.rxStream);
     config.tx_mtu = SoapySDRDevice_getStreamMTU(config.sdr, config.txStream);
 
-    config.tx_buff = malloc(2 * config.tx_mtu * sizeof(int16_t));
-    config.rx_buffer = malloc(2 * config.rx_mtu * sizeof(int16_t));
+    config.tx_buff = (int16_t*)malloc(2 * config.tx_mtu * sizeof(int16_t));
+    config.rx_buffer = (int16_t*)malloc(2 * config.rx_mtu * sizeof(int16_t));
 
     return config;
+}
+
+// Объявление комплесных чисел
+const complex<double> i0 (0, 0);
+const complex<double> i1 (1, 1);
+const complex<double> i2 (-1, 1);
+const complex<double> i3 (-1, -1);
+const complex<double> i4 (1, -1);
+
+// Пары: Бит: Символ
+static map<string, complex<double>> qpsk_map = {
+    {"00", i1},
+    {"01", i2},
+    {"11", i3},
+    {"10", i4}
+};
+
+template<typename T>
+
+// Функция для вывода массива
+void Show_Array(const char* title, T *array, int len){
+    printf("%s: ", title);
+    for (size_t i = 0; i < len; i++){
+        cout << array[i];
+    }
+    printf("\n");
+}
+
+// Функция для преобразования битов в символы
+void Mapper(int16_t *bits, int len_b, complex<double> *symbols, int len_s){
+    string pair_bits;
+    for (size_t i = 0; i < len_b; i += 2){
+        pair_bits = to_string(bits[i]) + to_string(bits[i+1]);
+        symbols[i/2] = qpsk_map[pair_bits];
+    }
+}
+
+void UpSampler(complex<double> *symbols, int len_s, complex<double> *symbols_ups, int L){
+    for (size_t i = 0; i < len_s*L; i++){
+        symbols_ups[i] = i0;
+    }
+    for (size_t i = 0; i < len_s; i ++){
+        symbols_ups[i*L] = symbols[i];
+    }
+}
+
+void filter(complex<double> *symbols_ups, int len_symbols_ups, complex<double> *impulse, int L) {
+    complex<double> *sum = (complex<double>*)malloc(len_symbols_ups * sizeof(complex<double>));
+    for (size_t i = 0; i < len_symbols_ups; i++) {
+        sum[i] = 0;
+        for (size_t j = 0; j < L && (int)(i-j) >= 0; j++) {
+            sum[i] += impulse[j] * symbols_ups[i-j];
+        }
+    }
+    for (size_t i = 0; i < len_symbols_ups; i++) {
+        symbols_ups[i] = sum[i];
+    }
+    free(sum);
 }
 
 int main(){
     struct SDRConfig config = SDRinit();
 
-    //заполнение tx_buff значениями сэмплов первые 16 бит - I, вторые 16 бит - Q.
-    for (size_t n = 0; n < config.tx_mtu; n++) {
-        double t = (double)n / (double)config.sample_rate; 
-        double phase = 2.0 * M_PI * (double)config.carrier_freq * t;
-        int I = 100.0 * cos(1); 
-        double Q = 100.0 * sin(1);
-
-        // Запись в буфер: I и Q — int16_t
-        config.tx_buff[2 * n]     = (int16_t)(I);
-        config.tx_buff[2 * n + 1] = (int16_t)(Q);
+    FILE *file = fopen("symbols.bin", "wb");
+    if (file == NULL){
+        perror("fopen: ");
     }
+
+    srand(time(0));
+
+    int len_bits = 100;
+    int16_t *bits = (int16_t*)malloc(len_bits * sizeof(int16_t)); // Массив бит
+    for (size_t i = 0; i < len_bits; i ++){
+        bits[i] = rand() % 2;
+        cout << bits[i];
+    }
+
+    int len_symbols = len_bits/2;
+    complex<double> *symbols = (complex<double>*)malloc(len_symbols * sizeof(complex<double>)); // Массив Символов
+
+    int L = 10;
+    int len_symbols_ups = len_symbols*L;
+    complex<double> *symbols_ups = (complex<double>*)malloc(len_symbols_ups * sizeof(complex<double>)); // Массив Символов после апсемплинга
+
+    complex<double> impulse[L]; // Импульсная хар-ка
+    for (size_t i = 0; i < L; i++){
+        impulse[i] = 1;
+    }
+
+    Mapper(bits, len_bits, symbols, len_symbols);
+    UpSampler(symbols, len_symbols, symbols_ups, L);
+    filter(symbols_ups, len_symbols_ups, impulse, L);
+    fwrite(symbols_ups, sizeof(complex<double>), len_symbols_ups, file);
+
+    int16_t *tx_samples = (int16_t*)malloc(2 * len_symbols_ups * sizeof(int16_t));
+
+    for (size_t i = 0; i < len_symbols_ups; i++) {
+        tx_samples[2*i] = static_cast<int16_t>(real(symbols_ups[i]));  // I
+        tx_samples[2*i + 1] = static_cast<int16_t>(imag(symbols_ups[i])); // Q
+    }
+    
+    // Копируем I/Q пары в начало tx_buff
+    memcpy(config.tx_buff, tx_samples, 2 * len_symbols_ups * sizeof(int16_t));
 
     for(size_t i = 0; i < 2; i++)
     {
@@ -129,6 +221,10 @@ int main(){
 
     free(config.tx_buff);
     free(config.rx_buffer);
+    free(bits);
+    free(symbols);
+    free(symbols_ups);
+    fclose(file);
 
     return 0;
 }
