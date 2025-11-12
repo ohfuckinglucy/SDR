@@ -5,7 +5,7 @@ import numpy as np
 import librosa
 from pydub import AudioSegment
 
-pcm_data = np.fromfile("rx_samples.pcm", dtype=np.int16)
+pcm_data = np.fromfile("ipanema_output.pcm", dtype=np.int16)
 
 audio = AudioSegment(
     data=pcm_data.tobytes(),

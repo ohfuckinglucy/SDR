@@ -1,6 +1,10 @@
 {
     "files.associations": {
         "complex": "cpp",
-        "cmath": "cpp"
+        "cmath": "cpp",
+        "array": "cpp",
+        "string_view": "cpp",
+        "initializer_list": "cpp",
+        "span": "cpp"
     }
 }

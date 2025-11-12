@@ -7,8 +7,8 @@ import matplotlib.pyplot as plt
 # except:
 #     print("Ошибка чтения")
 
-data_iq = np.fromfile("/home/plutoSDR/Rubtsov/lab2/dev/build/tx_samples.pcm", dtype=np.int16)
-data_iq2 = np.fromfile("/home/plutoSDR/Rubtsov/lab2/dev/build/rx_samples.pcm", dtype=np.int16)
+data_iq = np.fromfile("/home/plutoSDR/rubia331/SDR/dev/build/tx_out.pcm", dtype=np.int16)
+data_iq2 = np.fromfile("/home/plutoSDR/rubia331/SDR/dev/build/ipanema_output.pcm", dtype=np.int16)
 
 if len(data_iq) % 2 != 0:
     print("длина данных нечетная, последний сэмпл будет отброшен")

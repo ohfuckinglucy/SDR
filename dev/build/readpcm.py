@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-name = "/home/plutoSDR/Rubtsov/lab2/dev/build/bits.pcm"
+name = "/home/plutoSDR/rubia331/SDR/dev/build/ipanema_output.pcm"
 
 data = []
 imag = []

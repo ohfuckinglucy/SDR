@@ -1,5 +1,5 @@
 CMakeFiles/main.dir/src/main.cpp.o: \
- /home/plutoSDR/Rubtsov/lab2/dev/src/main.cpp /usr/include/stdc-predef.h \
+ /home/plutoSDR/rubia331/SDR/dev/src/main.cpp /usr/include/stdc-predef.h \
  /usr/local/include/SoapySDR/Device.h \
  /usr/local/include/SoapySDR/Config.h \
  /usr/lib/gcc/x86_64-linux-gnu/11/include/iso646.h \
@@ -67,6 +67,7 @@ CMakeFiles/main.dir/src/main.cpp.o: \
  /usr/lib/gcc/x86_64-linux-gnu/11/include/stdint.h /usr/include/stdint.h \
  /usr/include/x86_64-linux-gnu/bits/wchar.h \
  /usr/include/x86_64-linux-gnu/bits/stdint-uintn.h \
+ /usr/include/c++/11/complex.h /usr/include/c++/11/ccomplex \
  /usr/include/c++/11/complex /usr/include/c++/11/bits/cpp_type_traits.h \
  /usr/include/c++/11/ext/type_traits.h /usr/include/c++/11/cmath \
  /usr/include/math.h /usr/include/x86_64-linux-gnu/bits/math-vector.h \
@@ -176,10 +177,11 @@ CMakeFiles/main.dir/src/main.cpp.o: \
  /usr/include/c++/11/bits/basic_ios.tcc /usr/include/c++/11/ostream \
  /usr/include/c++/11/bits/ostream.tcc \
  /usr/include/c++/11/bits/istream.tcc \
- /usr/include/c++/11/bits/sstream.tcc /usr/include/c++/11/math.h \
- /usr/include/string.h /usr/include/strings.h \
- /usr/include/c++/11/iostream /usr/include/c++/11/map \
- /usr/include/c++/11/bits/stl_tree.h \
+ /usr/include/c++/11/bits/sstream.tcc /usr/include/complex.h \
+ /usr/include/x86_64-linux-gnu/bits/mathdef.h \
+ /usr/include/x86_64-linux-gnu/bits/cmathcalls.h \
+ /usr/include/c++/11/math.h /usr/include/c++/11/iostream \
+ /usr/include/c++/11/map /usr/include/c++/11/bits/stl_tree.h \
  /usr/include/c++/11/ext/aligned_buffer.h \
  /usr/include/c++/11/bits/node_handle.h \
  /usr/include/c++/11/bits/stl_map.h /usr/include/c++/11/tuple \
@@ -187,4 +189,9 @@ CMakeFiles/main.dir/src/main.cpp.o: \
  /usr/include/c++/11/array /usr/include/c++/11/bits/uses_allocator.h \
  /usr/include/c++/11/bits/invoke.h \
  /usr/include/c++/11/bits/stl_multimap.h \
- /usr/include/c++/11/bits/erase_if.h
+ /usr/include/c++/11/bits/erase_if.h /usr/include/c++/11/vector \
+ /usr/include/c++/11/bits/stl_uninitialized.h \
+ /usr/include/c++/11/bits/stl_vector.h \
+ /usr/include/c++/11/bits/stl_bvector.h \
+ /usr/include/c++/11/bits/vector.tcc /usr/include/string.h \
+ /usr/include/strings.h

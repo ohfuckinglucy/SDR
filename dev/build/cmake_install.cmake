@@ -1,4 +1,4 @@
-# Install script for directory: /home/plutoSDR/Rubtsov/lab2/dev
+# Install script for directory: /home/plutoSDR/rubia331/SDR/dev
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -50,5 +50,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "/home/plutoSDR/Rubtsov/lab2/dev/build/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "/home/plutoSDR/rubia331/SDR/dev/build/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
