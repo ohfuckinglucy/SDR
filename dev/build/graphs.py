@@ -1,25 +1,59 @@
 import numpy as np
 from matplotlib import pyplot as plt
 import struct
+print("Tx: 0\nRx: 1")
+choose = int(input())
 
-data = np.fromfile("tx.pcm", dtype=np.int16)
+if (choose == 0):
+    data = np.fromfile("tx.pcm", dtype=np.int16)
+else:
+    data = np.fromfile("rx.pcm", dtype=np.int16)
 
 N = len(data) // 2
 
-real_list = []
-imag_list = []
+samples = []
 
 for i in range(N):
-    real_list.append(data[2*i])
-    imag_list.append(data[2*i + 1])
+    samples.append((data[2*i]/np.max(data)) + 1j * (data[2*i+1]/np.max(data)))
 
-t = np.arange(len(real_list))
+L = np.ones(10)
+sample = np.convolve(samples, L)
+sample_10 = []
 
-signal = np.array(real_list) + 1j * np.array(imag_list)
+for i in range(9, len(sample), 10):
+    sample_10.append(sample[i])
 
-plt.subplot(2, 1, 1)
-plt.plot(t, real_list, "r", label="Real")
-plt.subplot(2, 1, 2)
-plt.plot(t, imag_list, "b", label="Imag")
+
+
+t = np.arange(len(sample_10))
+
+plt.figure()
+plt.plot(t, np.imag(sample_10), "r", label="Real")
 plt.legend()
 plt.show()
+
+plt.figure()
+plt.scatter(np.real(sample_10), np.imag(sample_10))
+plt.axhline(0)
+plt.axvline(0)
+plt.show()
+
+bits = []
+
+for i in range(0, len(sample_10)):
+    if np.real(sample_10[i]) > 5:
+        if np.imag(sample_10[i]) > 5:
+            bits.append(0)
+            bits.append(0)
+        elif np.imag(sample_10[i]) < 5:
+            bits.append(1)
+            bits.append(1)
+    elif np.real(sample_10[i] < -5):
+        if np.imag(sample_10[i]) > 5:
+            bits.append(0)
+            bits.append(1)
+        elif np.imag(sample_10[i]) < -5:
+            bits.append(1)
+            bits.append(0)
+
+print(bits)

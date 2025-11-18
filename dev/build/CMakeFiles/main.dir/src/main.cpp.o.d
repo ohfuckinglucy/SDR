@@ -1,6 +1,6 @@
 CMakeFiles/main.dir/src/main.cpp.o: \
- /home/plutoSDR/rubia331/SDR/dev/src/main.cpp /usr/include/stdc-predef.h \
- /usr/local/include/SoapySDR/Device.h \
+ /home/plutoSDR/rubia331/sdr/SDR/dev/src/main.cpp \
+ /usr/include/stdc-predef.h /usr/local/include/SoapySDR/Device.h \
  /usr/local/include/SoapySDR/Config.h \
  /usr/lib/gcc/x86_64-linux-gnu/11/include/iso646.h \
  /usr/lib/gcc/x86_64-linux-gnu/11/include/stdbool.h \
@@ -189,8 +189,8 @@ CMakeFiles/main.dir/src/main.cpp.o: \
  /usr/include/c++/11/array /usr/include/c++/11/bits/uses_allocator.h \
  /usr/include/c++/11/bits/invoke.h \
  /usr/include/c++/11/bits/stl_multimap.h \
- /usr/include/c++/11/bits/erase_if.h /usr/include/c++/11/vector \
- /usr/include/c++/11/bits/stl_uninitialized.h \
+ /usr/include/c++/11/bits/erase_if.h /usr/include/c++/11/ctime \
+ /usr/include/c++/11/vector /usr/include/c++/11/bits/stl_uninitialized.h \
  /usr/include/c++/11/bits/stl_vector.h \
  /usr/include/c++/11/bits/stl_bvector.h \
  /usr/include/c++/11/bits/vector.tcc /usr/include/string.h \

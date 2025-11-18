@@ -1,103 +1,33 @@
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
-# try:
-#     with open("/home/plutoSDR/Rubtsov/lab2/dev/build/rx_samples.bin", "rb") as file:
-#         data_iq_str = file.read()
-# except:
-#     print("Ошибка чтения")
+rx = np.fromfile(f"rx.pcm", dtype=np.int16)
 
-data_iq = np.fromfile("/home/plutoSDR/rubia331/SDR/dev/build/tx_out.pcm", dtype=np.int16)
-data_iq2 = np.fromfile("/home/plutoSDR/rubia331/SDR/dev/build/ipanema_output.pcm", dtype=np.int16)
+samples = []
 
-if len(data_iq) % 2 != 0:
-    print("длина данных нечетная, последний сэмпл будет отброшен")
-    data_iq = data_iq[:len(data_iq) - 1]
+for x in range(0, len(rx), 2):
+    samples.append(rx[x] + 1j * rx[x+1])
 
-# # plt.plot(data_iq)
-# # plt.show()
+ampl = np.abs(samples)
+phase = np.angle(samples)
+time = np.arange(len(samples))
 
 
-
-iq_samples = data_iq[0::2] + 1j * data_iq[1::2]
-
-# plt.subplot(2,1,1)
-
-# plt.plot(data_iq[0::2], "m")
-# plt.subplot(2,1,2)
-
-# plt.plot(data_iq[1::2], "g")
-
-# plt.show()
-
-amplitude = np.abs(iq_samples)
-
-phase = np.angle(iq_samples)
-time = np.arange(len(iq_samples))
-
-plt.figure(figsize=(12, 6))
-
-plt.subplot(2,1,1)
-plt.plot(time, amplitude, "r")
-plt.title("амплитуда Tx")
-plt.xlabel("семпл индкс")
-plt.ylabel("амплитуда")
+# plot
+plt.subplot(3,1,1)
+plt.legend
+plt.plot(time, ampl)
 plt.grid(True)
 
-# plt.subplot(2,1,2)
-# plt.plot(time, phase, "m")
-# plt.title("фаза")
-# plt.xlabel("семпл индекс")
-# plt.ylabel("фаза (радианы)")
-# plt.grid(True)
-
-# plt.tight_layout()
-# plt.show()
-
-
-
-
-
-if len(data_iq) % 2 != 0:
-    print("длина данных нечетная, последний сэмпл будет отброшен")
-    data_iq = data_iq[:len(data_iq) - 1]
-
-# # plt.plot(data_iq)
-# # plt.show()
-
-
-
-iq_samples = data_iq2[0::2] + 1j * data_iq2[1::2]
-
-# plt.subplot(2,1,1)
-
-# plt.plot(data_iq[0::2], "m")
-# plt.subplot(2,1,2)
-
-# plt.plot(data_iq[1::2], "g")
-
-# plt.show()
-
-amplitude = np.abs(iq_samples)
-
-phase = np.angle(iq_samples)
-time = np.arange(len(iq_samples))
-
-# plt.figure(figsize=(12, 6))
-
-plt.subplot(2,1,2)
-plt.plot(time, amplitude, "r")
-plt.title("амплитуда Rx")
-plt.xlabel("семпл индкс")
-plt.ylabel("амплитуда")
+plt.subplot(3,1,2)
+plt.legend
+plt.plot(time, phase)
 plt.grid(True)
 
-# plt.subplot(2,1,2)
-# plt.plot(time, phase, "m")
-# plt.title("фаза")
-# plt.xlabel("семпл индекс")
-# plt.ylabel("фаза (радианы)")
-# plt.grid(True)
 
-plt.tight_layout()
+plt.subplot(3,1,3)
+plt.legend
+plt.plot(time, rx[0::2])
+plt.plot(time, rx[1::2])
+plt.grid(True)
 plt.show()
