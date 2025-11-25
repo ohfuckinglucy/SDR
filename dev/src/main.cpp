@@ -134,8 +134,6 @@ void filter(complex<double> *symbols_ups, int len_symbols_ups, complex<double> *
 int main(){
     struct SDRConfig config = SDRinit();
 
-
-
     FILE *tx = fopen("tx.pcm", "wb");
     if (tx == NULL){
         perror("fopen: ");

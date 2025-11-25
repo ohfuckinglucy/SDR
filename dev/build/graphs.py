@@ -5,9 +5,9 @@ print("Tx: 0\nRx: 1")
 choose = int(input())
 
 if (choose == 0):
-    data = np.fromfile("tx_5.pcm", dtype=np.int16)
+    data = np.fromfile("tx.pcm", dtype=np.int16)
 else:
-    data = np.fromfile("rx_5.pcm", dtype=np.int16)
+    data = np.fromfile("rx_1.pcm", dtype=np.int16)
 
 N = len(data) // 2
 
@@ -37,15 +37,13 @@ plt.axvline(0)
 plt.show()
 
 bits = []
-threshold = 500
+threshold = 10000
 
 for s in sample_10:
     if abs(s) < threshold:
         continue
-    re = np.imag(s)
-    im = -np.real(s)
-    # re = np.real(s)
-    # im = np.imag(s)
+    re = np.real(s)
+    im = np.imag(s)
     if re >= 0 and im >= 0:
         bits.append(0)
         bits.append(0)
