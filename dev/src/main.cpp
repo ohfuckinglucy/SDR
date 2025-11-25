@@ -144,7 +144,7 @@ int main(){
         perror("fopen: ");
     }
 
-    int n = 20;
+    int n = 1920*100;
 
     srand(time(0));
 
