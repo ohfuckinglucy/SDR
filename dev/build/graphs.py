@@ -1,7 +1,6 @@
 import numpy as np
 from matplotlib import pyplot as plt
 
-## Открытие файла и формирование семплов
 print("Tx: 0\nRx: 1")
 choose = int(input())
 
@@ -14,12 +13,11 @@ N = len(data) // 2
 
 samples_all = []
 for i in range(N):
-    samples_all.append(((data[2*i]) + 1j * (data[2*i+1]))/np.max(data))
+    samples_all.append((data[2*i]) + 1j * (data[2*i+1]))
 
 samples = []
 for i in range(len(samples_all)):
-    if samples_all[i] >= 0.05:
-        samples.append(samples_all[i])
+    samples.append(samples_all[i])
 
 L = np.ones(10)
 
@@ -27,7 +25,7 @@ sample = np.convolve(samples, L, mode='same')
 
 symbols = []
 
-for i in range(9, len(sample), 10):
+for i in range(3600, len(sample), 10):
     symbols.append(sample[i])
 
 bits = []
@@ -74,4 +72,15 @@ plt.title("Глазковая диаграмма (Eye Diagram)")
 plt.xlabel("Сэмплы внутри символа")
 plt.ylabel("Амплитуда")
 plt.grid(True)
+plt.show()
+
+plt.figure()
+plt.scatter(np.real(symbols), np.imag(symbols), color='purple', s=20)
+plt.axhline(0, color='k', linewidth=0.5)
+plt.axvline(0, color='k', linewidth=0.5)
+plt.title("Созвездие (Constellation Diagram)")
+plt.xlabel("I")
+plt.ylabel("Q")
+plt.grid()
+plt.axis('equal')
 plt.show()
