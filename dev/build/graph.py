@@ -4,7 +4,7 @@ from matplotlib import pyplot as plt
 def ted_gardner(samples, Nsps=10):
     BnTs = 0.01
     zeta = np.sqrt(2)/2
-    Kp = 0.002
+    Kp = 1
     teta = (BnTs/Nsps)/(zeta + 1/(4*zeta))
 
     K1 = (-4*zeta*teta)/((1 + 2*zeta*teta + teta**2)*Kp)
@@ -12,39 +12,42 @@ def ted_gardner(samples, Nsps=10):
 
     p1 = 0.0
     p2 = 0.0
+    offset = 0
+    n = 0
+    of = 0
 
     offset_list = []
+    error = []
+    for n in range(0, len(samples)//Nsps-1):
+        of = offset
 
-    for n in range(Nsps, len(samples)-Nsps):
-        x_prev = samples[n - Nsps]
-        x_curr = samples[n]
-        x_mid  = samples[n - Nsps//2]
+        x_next = samples[of + Nsps + Nsps*n]
+        x_curr = samples[of + Nsps*n]
+        x_mid  = samples[of + Nsps//2 + Nsps*n]
 
-        e_real = (np.real(x_curr) - np.real(x_prev)) * np.real(x_mid)
-        e_imag = (np.imag(x_curr) - np.imag(x_prev)) * np.imag(x_mid)
+        e_real = (np.real(x_next) - np.real(x_curr)) * np.real(x_mid)
+        e_imag = (np.imag(x_next) - np.imag(x_curr)) * np.imag(x_mid)
+
         e = e_real + e_imag
 
         p1 = K1 * e
         p2 = p2 + p1 + K2 * e
 
-        while p2 > 1:
-            p2 = (p2 % 2) - 1
-        while p2 < -1:
-            p2 = (p2 % 2) + 1
+        p2 %= 1
 
         offset = int(round(p2 * Nsps))
         offset_list.append(offset)
+        error.append(e)
 
-    optimal_offset = int(np.round(np.mean(offset_list)))
-    return optimal_offset
+    return error, offset_list, offset
 
 print("Tx: 0\nRx: 1")
 choose = int(input())
 
 if (choose == 0):
-    data = np.fromfile("bin/lab6/tx_1.pcm", dtype=np.int16)
+    data = np.fromfile("rx.pcm", dtype=np.int16)
 else:
-    data = np.fromfile("bin/lab6/rx_1.pcm", dtype=np.int16)
+    data = np.fromfile("bin/lab6/rx_7.pcm", dtype=np.int16)
 
 N = len(data) // 2
 
@@ -53,13 +56,34 @@ samples = []
 for i in range(N):
     samples.append(((data[2*i]) + 1j * (data[2*i+1])))
 
+samples = samples/np.max(np.real(samples))
+
+# mask = np.abs(samples) > 0.03
+# samples = samples[mask]
+
+samples = samples[4:]
+
+plt.plot(np.arange(len(samples)), np.real(samples), 'b', label="Real")
+plt.plot(np.arange(len(samples)), np.imag(samples), 'r', label="Imag")
+
+plt.grid()
+plt.legend()
+plt.show()
+
 L = np.ones(10)
 
 sample = np.convolve(samples, L)
 
 sample_10 = []
 
-offset = ted_gardner(sample)
+error, offset_list, offset = ted_gardner(sample)
+
+plt.plot(np.arange(len(error)), error, 'r', label="Error")
+plt.plot(np.arange(len(offset_list)), offset_list, 'b', label="offset")
+plt.grid()
+plt.legend()
+plt.show()
+
 print(f'Найденный сдвиг: {offset}')
 
 for i in range(offset, len(sample), 10):
@@ -68,7 +92,7 @@ for i in range(offset, len(sample), 10):
 t = np.arange(len(sample_10))
 
 bits = []
-threshold = 10000
+threshold = 5
 
 for s in sample_10:
     if abs(s) < threshold:

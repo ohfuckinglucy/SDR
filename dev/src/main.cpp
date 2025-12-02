@@ -10,6 +10,8 @@
 #include <ctime>
 #include <vector>
 #include <string.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 using namespace std;
 template<typename T>
@@ -27,12 +29,12 @@ struct SDRConfig{
     int16_t *rx_buffer;
 };
 
-struct SDRConfig SDRinit(){
+struct SDRConfig SDRinit(const char *usb){
     struct SDRConfig config = {};
     SoapySDRKwargs args = {};
     SoapySDRKwargs_set(&args, "driver", "plutosdr");
     if (1) {
-        SoapySDRKwargs_set(&args, "uri", "usb:");
+        SoapySDRKwargs_set(&args, "uri", usb);
     } else {
         SoapySDRKwargs_set(&args, "uri", "ip:192.168.2.1");
     }
@@ -131,9 +133,8 @@ void filter(complex<double> *symbols_ups, int len_symbols_ups, complex<double> *
     free(sum);
 }
 
-int main(){
-    struct SDRConfig config = SDRinit();
 
+int main(int argc, char* argv[]){
     FILE *tx = fopen("tx.pcm", "wb");
     if (tx == NULL){
         perror("fopen: ");
@@ -144,7 +145,7 @@ int main(){
         perror("fopen: ");
     }
 
-    int n = 1920*100;
+    int n = 500;
 
     srand(time(0));
 
@@ -172,55 +173,59 @@ int main(){
     Show_Array("bits", bits, n);
     Show_Array("symbols", symbols, len_symbols);
 
-    int16_t *tx_samples = (int16_t*)malloc(2*config.tx_mtu*sizeof(int16_t));
+    int16_t *tx_samples = (int16_t*)malloc(2*1920 * sizeof(int16_t));
 
-    for (size_t i = 0; i < config.tx_mtu; i++) {
+    for (size_t i = 0; i < 1920; i++) {
         tx_samples[2*i] = (int16_t)(real(symbols_ups[i])) * 1000 << 4;  // I
         tx_samples[2*i + 1] = (int16_t)(imag(symbols_ups[i])) * 1000 << 4; // Q
     }
 
-    fwrite(tx_samples, sizeof(int16_t), len_symbols_ups, tx);
+    fwrite(tx_samples, sizeof(int16_t), 2*1920, tx);
     fclose(tx);
 
-    int flags;
-    long long timeNs;
-    long long last_time = 0;
-    long timeoutUs = 400000;
-    flags = SOAPY_SDR_HAS_TIME;
+    int pid = fork();
 
-    void *rx_buffs[] = {config.rx_buffer};
-    void *tx_buffs[] = {tx_samples};
+    if (pid != 0){
 
-    for (size_t i = 0; i < 4; i++)
-    {
-        int sr = SoapySDRDevice_readStream(config.sdr, config.rxStream, rx_buffs, config.rx_mtu, &flags, &timeNs, timeoutUs);
+        struct SDRConfig config2 = SDRinit(argv[1]);
+    
+        int flags;
+        long long timeNs;
+        long long last_time = 0;
+        long timeoutUs = 400000;
+        flags = SOAPY_SDR_HAS_TIME;
 
-        long long tx_time = timeNs + (4 * 1000 * 1000); // Schedule TX 4ms ahead
-        if (i)
-        {
-            int st = SoapySDRDevice_writeStream(config.sdr, config.txStream, (const void * const*)tx_buffs, config.tx_mtu, &flags, tx_time, timeoutUs);
+
+        while (1){
+            long long tx_time = timeNs + (4 * 1000 * 1000);
+            void *rx_buffs[] = {config2.rx_buffer};
+            int sr = SoapySDRDevice_readStream(config2.sdr, config2.rxStream, rx_buffs, config2.rx_mtu, &flags, &timeNs, timeoutUs);
+            
+            printf("Buffer: %lu - Samples: %i, Flags: %i, Time: %lli, TimeDiff: %lli\n", 1, sr, flags, timeNs, (timeNs - last_time) * (last_time > 0));
+
+            fwrite(rx_buffs[0], sizeof(int16_t), 2 * config2.rx_mtu, rx);
+
+            last_time = tx_time;
+        }
+        
+    } else {
+        struct SDRConfig config1 = SDRinit(argv[2]);
+
+        void *tx_buffs[] = {tx_samples};
+
+        int flags;
+        long long timeNs;
+        long long last_time = 0;
+        long timeoutUs = 400000;
+        flags = SOAPY_SDR_HAS_TIME;
+
+        while (1){
+            long long tx_time = timeNs + (4 * 1000 * 1000); // Schedule TX 4ms ahead
+            int st = SoapySDRDevice_writeStream(config1.sdr, config1.txStream, (const void * const*)tx_buffs, config1.tx_mtu, &flags, tx_time, timeoutUs);
 
             if (st < 0)
-                printf("TX Failed on buffer %zu: %i\n", i, st);
-            printf("Buffer: %lu - Samples: %i, Flags: %i, Time: %lli, TimeDiff: %lli\n", i, sr, flags, timeNs, (timeNs - last_time) * (last_time > 0));
+                printf("TX Failed on buffer %zu: %i\n", 1, st);
         }
-        fwrite(rx_buffs[0], sizeof(int16_t), 2 * config.rx_mtu, rx);
-        last_time = tx_time;
     }
-
-    SoapySDRDevice_deactivateStream(config.sdr, config.rxStream, 0, 0);
-    SoapySDRDevice_deactivateStream(config.sdr, config.txStream, 0, 0);
-
-    SoapySDRDevice_closeStream(config.sdr, config.rxStream);
-    SoapySDRDevice_closeStream(config.sdr, config.txStream);
-
-    SoapySDRDevice_unmake(config.sdr);
-
-    free(config.tx_buff);
-    free(config.rx_buffer);
-    free(symbols);
-    free(symbols_ups);
-    fclose(rx);
-
     return 0;
 }
