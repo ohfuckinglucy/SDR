@@ -133,17 +133,13 @@ void filter(complex<double> *symbols_ups, int len_symbols_ups, complex<double> *
 
 
 int main(char* argv[]){
-    struct SDRConfig config1 = SDRinit(argv[1]);
-    struct SDRConfig config2 = SDRinit(argv[2]);
+    struct SDRConfig config = SDRinit(argv[1]);
 
-    FILE *tx = fopen("tx.pcm", "wb");
-    if (tx == NULL){
-        perror("fopen: ");
-    }
-
-    FILE *rx = fopen("rx.pcm", "wb");
-    if (rx == NULL){
-        perror("fopen: ");
+    FILE *tx_file = fopen("tx.pcm", "wb");
+    FILE *rx_file = fopen("rx.pcm", "wb");
+    if (!tx_file || !rx_file) {
+        perror("fopen");
+        return 1;
     }
 
     int n = 5000000;
@@ -174,53 +170,63 @@ int main(char* argv[]){
     Show_Array("bits", bits, n);
     Show_Array("symbols", symbols, len_symbols);
 
-    int16_t *tx_samples = (int16_t*)malloc(2*len_symbols*sizeof(int16_t));
-
-    for (size_t i = 0; i < len_symbols; i++) {
-        tx_samples[2*i] = (int16_t)(real(symbols_ups[i])) * 1000 << 4;  // I
-        tx_samples[2*i + 1] = (int16_t)(imag(symbols_ups[i])) * 1000 << 4; // Q
+    int16_t *tx_samples = (int16_t*)malloc(2 * len_symbols_ups * sizeof(int16_t));
+    for (int i = 0; i < len_symbols_ups; i++) {
+        double scale = 2000.0;
+        tx_samples[2*i]     = (int16_t)(real(symbols_ups[i]) * scale);
+        tx_samples[2*i + 1] = (int16_t)(imag(symbols_ups[i]) * scale);
     }
 
-    fwrite(tx_samples, sizeof(int16_t), len_symbols_ups, tx);
-    fclose(tx);
+    fwrite(tx_samples, sizeof(int16_t), 2 * len_symbols_ups, tx_file);
+    fclose(tx_file);
 
-    int flags;
-    long long timeNs;
+    long long timeNs = 0;
     long long last_time = 0;
-    long timeoutUs = 400000;
-    flags = SOAPY_SDR_HAS_TIME;
+    const long timeoutUs = 400000;
+    int flags = 0;
 
     void *rx_buffs[] = {config.rx_buffer};
-    
-    for (size_t i = 0; i < 150; i++)
-    {
-        void *tx_buffs[] = {tx_samples+i*2*1920};
+    int sr = SoapySDRDevice_readStream(config.sdr, config.rxStream, rx_buffs, config.rx_mtu, &flags, &timeNs, timeoutUs);
+    if (sr < 0) {
+        cerr << "Initial RX failed!" << endl;
+        return 1;
+    }
 
-        int sr = SoapySDRDevice_readStream(config.sdr, config.rxStream, rx_buffs, config.rx_mtu, &flags, &timeNs, timeoutUs);
+    for (size_t i = 0; i < 150; i++) {
+        void *tx_buffs[] = {tx_samples + i * 2 * config.tx_mtu};
 
-        long long tx_time = timeNs + (4 * 1000 * 1000); // Schedule TX 4ms ahead
+        long long tx_time = timeNs + (i + 1) * (config.tx_mtu * 1000000LL / config.sample_rate);
+        flags = SOAPY_SDR_HAS_TIME;
         int st = SoapySDRDevice_writeStream(config.sdr, config.txStream, (const void * const*)tx_buffs, config.tx_mtu, &flags, tx_time, timeoutUs);
 
-        if (st < 0)
-            printf("TX Failed on buffer %zu: %i\n", i, st);
-        printf("Buffer: %lu - Samples: %i, Flags: %i, Time: %lli, TimeDiff: %lli\n", i, sr, flags, timeNs, (timeNs - last_time) * (last_time > 0));
-        fwrite(rx_buffs[0], sizeof(int16_t), 2 * config.rx_mtu, rx);
-        last_time = tx_time;
+        if (st < 0) {
+            printf("TX Failed on buffer %zu: %d\n", i, st);
+        }
+
+        flags = 0;
+        sr = SoapySDRDevice_readStream(config.sdr, config.rxStream, rx_buffs, config.rx_mtu, &flags, &timeNs, timeoutUs);
+        if (sr > 0) {
+            fwrite(config.rx_buffer, sizeof(int16_t), 2 * sr, rx_file);
+        }
+
+        printf("Buf %zu: RX=%d TX=%d Time=%lld\n", i, sr, st, timeNs);
     }
+
+    fclose(rx_file);
 
     SoapySDRDevice_deactivateStream(config.sdr, config.rxStream, 0, 0);
     SoapySDRDevice_deactivateStream(config.sdr, config.txStream, 0, 0);
-
     SoapySDRDevice_closeStream(config.sdr, config.rxStream);
     SoapySDRDevice_closeStream(config.sdr, config.txStream);
-
     SoapySDRDevice_unmake(config.sdr);
 
-    free(config.tx_buff);
-    free(config.rx_buffer);
+    free(bits);
     free(symbols);
     free(symbols_ups);
-    fclose(rx);
+    free(impulse);
+    free(tx_samples);
+    free(config.tx_buff);
+    free(config.rx_buffer);
 
     return 0;
 }

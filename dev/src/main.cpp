@@ -173,11 +173,11 @@ int main(int argc, char* argv[]){
     Show_Array("bits", bits, n);
     Show_Array("symbols", symbols, len_symbols);
 
-    int16_t *tx_samples = (int16_t*)malloc(2*1920 * sizeof(int16_t));
+    int16_t *tx_samples = (int16_t*)malloc(2 * 1920 * sizeof(int16_t));
 
     for (size_t i = 0; i < 1920; i++) {
-        tx_samples[2*i] = (int16_t)(real(symbols_ups[i])) * 1000 << 4;  // I
-        tx_samples[2*i + 1] = (int16_t)(imag(symbols_ups[i])) * 1000 << 4; // Q
+        tx_samples[2*i]     = (int16_t)(real(symbols_ups[i]) * 16000);
+        tx_samples[2*i + 1] = (int16_t)(imag(symbols_ups[i]) * 16000);
     }
 
     fwrite(tx_samples, sizeof(int16_t), 2*1920, tx);
@@ -185,46 +185,70 @@ int main(int argc, char* argv[]){
 
     int pid = fork();
 
-    if (pid != 0){
-
+    if (pid != 0)
+    {
         struct SDRConfig config2 = SDRinit(argv[1]);
-    
-        int flags;
-        long long timeNs;
+
+        long long timeNs = 0;
         long long last_time = 0;
         long timeoutUs = 400000;
-        flags = SOAPY_SDR_HAS_TIME;
 
+        while (1)
+        {
+            int flags = SOAPY_SDR_HAS_TIME;
+            void *rx_buffs[] = { config2.rx_buffer };
 
-        while (1){
-            long long tx_time = timeNs + (4 * 1000 * 1000);
-            void *rx_buffs[] = {config2.rx_buffer};
-            int sr = SoapySDRDevice_readStream(config2.sdr, config2.rxStream, rx_buffs, config2.rx_mtu, &flags, &timeNs, timeoutUs);
-            
-            printf("Buffer: %lu - Samples: %i, Flags: %i, Time: %lli, TimeDiff: %lli\n", 1, sr, flags, timeNs, (timeNs - last_time) * (last_time > 0));
+            int sr = SoapySDRDevice_readStream(
+                config2.sdr,
+                config2.rxStream,
+                rx_buffs,
+                config2.rx_mtu,
+                &flags,
+                &timeNs,
+                timeoutUs
+            );
 
-            fwrite(rx_buffs[0], sizeof(int16_t), 2 * config2.rx_mtu, rx);
+            printf("RX: sr=%d, time=%lld, diff=%lld\n",
+                sr, timeNs, (last_time ? (timeNs - last_time) : 0));
 
-            last_time = tx_time;
+            fwrite(rx_buffs[0], sizeof(int16_t), 2 * sr, rx);
+
+            last_time = timeNs;
         }
-        
-    } else {
+    }
+    else
+    {
         struct SDRConfig config1 = SDRinit(argv[2]);
 
-        void *tx_buffs[] = {tx_samples};
-
-        int flags;
-        long long timeNs;
-        long long last_time = 0;
+        long long timeNs = 0;
         long timeoutUs = 400000;
-        flags = SOAPY_SDR_HAS_TIME;
 
-        while (1){
-            long long tx_time = timeNs + (4 * 1000 * 1000); // Schedule TX 4ms ahead
-            int st = SoapySDRDevice_writeStream(config1.sdr, config1.txStream, (const void * const*)tx_buffs, config1.tx_mtu, &flags, tx_time, timeoutUs);
+        void *tx_buffs[] = { tx_samples };
+
+        sleep(1);
+
+        timeNs = SoapySDRDevice_getHardwareTime(config1.sdr, NULL);
+
+        while (1)
+        {
+            long long tx_time = timeNs + 4000000LL;
+
+            int flags = SOAPY_SDR_HAS_TIME;
+
+            int st = SoapySDRDevice_writeStream(
+                config1.sdr,
+                config1.txStream,
+                (const void * const*)tx_buffs,
+                1920,
+                &flags,
+                tx_time,
+                timeoutUs
+            );
 
             if (st < 0)
-                printf("TX Failed on buffer %zu: %i\n", 1, st);
+                printf("TX error: %d\n", st);
+
+            timeNs = tx_time;
         }
     }
     return 0;
