@@ -147,6 +147,7 @@ def create_dplot(t1, sig1, color1, label1, t2, sig2, color2, label2, xlabel1, yl
     plt.plot(t2, sig2, f'{color2}', label=f'{label2}')
     plt.xlabel(xlabel1)
     plt.ylabel(ylabel2)
+    plt.title(title)
     plt.grid()
     plt.legend()
 

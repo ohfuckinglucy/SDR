@@ -135,6 +135,7 @@ void filter(complex<double> *symbols_ups, int len_symbols_ups, complex<double> *
 
 
 int main(int argc, char* argv[]){
+    (void*)argc;
     FILE *tx = fopen("tx.pcm", "wb");
     if (tx == NULL){
         perror("fopen: ");
@@ -173,14 +174,14 @@ int main(int argc, char* argv[]){
     Show_Array("bits", bits, n);
     Show_Array("symbols", symbols, len_symbols);
 
-    int16_t *tx_samples = (int16_t*)malloc(2 * 1920 * sizeof(int16_t));
+    int16_t *tx_samples = (int16_t*)malloc(2 * len_symbols * sizeof(int16_t));
 
-    for (size_t i = 0; i < 1920; i++) {
-        tx_samples[2*i]     = (int16_t)(real(symbols_ups[i]) * 16000);
-        tx_samples[2*i + 1] = (int16_t)(imag(symbols_ups[i]) * 16000);
+    for (size_t i = 0; i < len_symbols; i++) {
+        tx_samples[2*i]     = (int16_t)(real(symbols_ups[i]) * 16000) << 4;
+        tx_samples[2*i + 1] = (int16_t)(imag(symbols_ups[i]) * 16000) << 4;
     }
 
-    fwrite(tx_samples, sizeof(int16_t), 2*1920, tx);
+    fwrite(tx_samples, sizeof(int16_t), 2*len_symbols, tx);
     fclose(tx);
 
     int pid = fork();
@@ -250,6 +251,7 @@ int main(int argc, char* argv[]){
 
             timeNs = tx_time;
         }
+        SoapySDRDevice_deactivateStream(config1.sdr, config1.txStream, 0, 0);
     }
     return 0;
 }

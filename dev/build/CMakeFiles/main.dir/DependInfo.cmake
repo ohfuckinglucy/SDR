@@ -8,7 +8,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
-  "/home/plutoSDR/rubia331/sdr/SDR/dev/src/main.cpp" "CMakeFiles/main.dir/src/main.cpp.o" "gcc" "CMakeFiles/main.dir/src/main.cpp.o.d"
+  "/home/plutoSDR/Документы/SDR/dev/src/main.cpp" "CMakeFiles/main.dir/src/main.cpp.o" "gcc" "CMakeFiles/main.dir/src/main.cpp.o.d"
   )
 
 # Targets to which this target links.
