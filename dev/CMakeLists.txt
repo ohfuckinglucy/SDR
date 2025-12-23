@@ -6,12 +6,17 @@ set(CMAKE_BUILD_TYPE Debug)
 # Ищем библиотеку SoapySDR
 find_package(SoapySDR REQUIRED)
 
-set(MAIN_SOURCE_FILES
+# Указываем директорию с заголовочными файлами
+include_directories(${CMAKE_SOURCE_DIR}/include)
+
+# Исходные файлы
+set(SOURCE_FILES
     src/main.cpp
+    src/functions.cpp
 )
 
 # Добавляем исполняемый файл
-add_executable(main ${MAIN_SOURCE_FILES})
+add_executable(main ${SOURCE_FILES})
 
-# Линкуем библиотеки к исполняемому файлу
+# Линкуем библиотеки
 target_link_libraries(main ${SoapySDR_LIBRARIES})

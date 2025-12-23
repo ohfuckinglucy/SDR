@@ -1,4 +1,4 @@
-# Install script for directory: /home/plutoSDR/Документы/SDR/dev
+# Install script for directory: /home/ohfuckinglucy/prog/SDR/dev
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -50,5 +50,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "/home/plutoSDR/Документы/SDR/dev/build/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "/home/ohfuckinglucy/prog/SDR/dev/build/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")

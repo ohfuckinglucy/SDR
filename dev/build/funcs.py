@@ -19,7 +19,12 @@ def ted_gardner(samples, Nsps=10):
     offset_list = []
     error = []
     for n in range(0, len(samples)//Nsps-1):
+        
         of = offset
+
+        idx = of + Nsps + Nsps*n
+        if idx >= len(samples):
+            break
 
         x_next = samples[of + Nsps + Nsps*n]
         x_curr = samples[of + Nsps*n]
@@ -129,10 +134,6 @@ def costas_loop(samples):
 
     return samples_fix
 
-def ffl(samples):
-
-    return samples
-
 def create_plot(t, sig, color='r', label='', xlabel='', ylabel='', title=''):
     plt.figure()
     plt.plot(t, sig, f'{color}', label=f'{label}')
@@ -159,3 +160,62 @@ def create_constellation(sig1, sig2, xlabel1, ylabel2, title):
     plt.ylabel(ylabel2)
     plt.axhline(0)
     plt.axvline(0)
+
+def cfo_corr(signal, Nt = 13):
+    autocor = []
+    L = len(signal)
+
+    for m in range(0, L - 2*Nt + 1):
+        corr_sum = 0
+        for n in range(0, Nt):
+            corr_sum += signal[m + n + Nt] * np.conjugate(signal[m + n])
+        autocor.append(corr_sum)
+    return autocor
+
+def cfo_estimation(symbols, s_rate=100000, Nt=13):
+    autocor = cfo_corr(symbols, Nt=Nt)
+    peak_index = np.argmax(np.abs(autocor))
+    
+    seq1 = symbols[peak_index : peak_index + Nt]
+    seq2 = symbols[peak_index + Nt : peak_index + 2*Nt]
+    
+    a = 0
+    for n in range(Nt):
+        a += np.conjugate(seq1[n]) * seq2[n]
+    
+    phase = np.angle(a)
+    
+    Ts = 1 / s_rate
+    f_cfo = phase / (2 * np.pi * Nt * Ts)
+    
+    return f_cfo, autocor
+
+def cfo_correct(symbols, f_cfo, sample_rate=100000, n0=0):
+    correct = np.zeros_like(symbols)
+
+    n = np.arange(len(correct))
+
+    correct = symbols * np.exp(-1j*2*np.pi*f_cfo*(n+n0)*(1/sample_rate))
+
+    return correct
+
+def costas_loop_bpsk(samples, Kp=0.1, Ki=0.01):
+    corrected = np.zeros_like(samples, dtype=complex)
+    phase_error = 0.0
+    integrator = 0.0
+    theta = 0.0
+
+    for n in range(len(samples)):
+        corrected[n] = samples[n] * np.exp(-1j * theta)
+        
+        I = np.real(corrected[n])
+        Q = np.imag(corrected[n])
+        phase_error = I * Q
+        
+        integrator += phase_error
+        
+        theta += Kp * phase_error + Ki * integrator
+        
+        theta = np.mod(theta + np.pi, 2*np.pi) - np.pi
+
+    return corrected

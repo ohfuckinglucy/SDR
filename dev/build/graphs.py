@@ -1,86 +1,81 @@
-import numpy as np
-from matplotlib import pyplot as plt
+from funcs import *
 
-print("Tx: 0\nRx: 1")
-choose = int(input())
+def estimate_cfo(rx_symbols, Nt, symbol_rate):
+    if len(rx_symbols) < 2 * Nt:
+        raise ValueError("Недостаточно символов для оценки CFO")
 
-if (choose == 0):
-    data = np.fromfile("bin/lab6/tx_1.pcm", dtype=np.int16)
+    x1 = rx_symbols[:Nt]
+    x2 = rx_symbols[Nt:2*Nt]
+
+    alpha_hat = np.sum(x2 * np.conj(x1))
+
+    phase = np.angle(alpha_hat)
+
+    est_cfo = phase / (2 * np.pi * (1.0 / symbol_rate))
+
+    return est_cfo
+
+
+def correct_cfo(samples, est_cfo, symbol_rate, n0=0):
+    Ts = 1.0 / symbol_rate
+    n = np.arange(len(samples)) + n0
+    correction = np.exp(-1j * 2 * np.pi * est_cfo * n * Ts)
+    return samples * correction
+
+# print("Введите номер файла: ")
+# num = input()
+
+symbol_rate = 100_000      # 100 ksym/s
+Fs = 1_000_000             # 1 Msps
+Nsps = 10   # = 10
+Nt = 13                    # длина Barker
+
+print(f"Введите номер файла: ")
+num = input()
+
+if (num == "0"):
+    data = np.fromfile('rx.pcm', dtype=np.int16)
 else:
-    data = np.fromfile("bin/lab6/rx_2.pcm", dtype=np.int16)
+    data = np.fromfile(f'bin/rx/rx_{num}.pcm', dtype=np.int16)
 
-N = len(data) // 2
 
-samples_all = []
-for i in range(N):
-    samples_all.append((data[2*i]) + 1j * (data[2*i+1]))
+samples = data[0::2] + 1j * data[1::2]
+samples = samples / np.max(np.abs(samples))
 
-samples = []
-for i in range(len(samples_all)):
-    samples.append(samples_all[i])
+coarse_symbols = samples[::Nsps]
 
-L = np.ones(10)
+est_cfo = estimate_cfo(coarse_symbols, Nt, symbol_rate)
+print(f"Оценённый CFO: {est_cfo:.2f} Гц")
 
-sample = np.convolve(samples, L, mode='same')
+n = np.arange(len(samples))
+correction = np.exp(-1j * 2 * np.pi * est_cfo * n / Fs)
+corrected_samples = samples * correction
 
-symbols = []
+L = np.ones(Nsps)
+filtered = np.convolve(corrected_samples, L, mode='same')
 
-for i in range(3600, len(sample), 10):
-    symbols.append(sample[i])
+filtered = trim_signal_by_energy(filtered, Nsps=Nsps)
 
-bits = []
-for s in symbols:
-    re = np.real(s)
-    im = np.imag(s)
-    if re >= 0 and im >= 0:
-        bits.append(0)
-        bits.append(0)
-    elif re < 0 and im >= 0:
-        bits.append(0)
-        bits.append(1)
-    elif re < 0 and im < 0:
-        bits.append(1)
-        bits.append(1)
-    else:
-        bits.append(1)
-        bits.append(0)
+symbols, error, offset_list, offset = sym_sync(filtered)
 
-print(f'Длина битной последовательности: {len(bits)}\nБиты: {bits}')
+symbols = costas_loop(symbols)
 
-plt.figure(figsize=(12, 4))
-plt.plot(np.real(sample), 'b', label='I')
-plt.plot(np.imag(sample), 'r', label='Q')
-plt.title("IQ-сэмплы после свёртки")
-plt.xlabel("Sample index")
-plt.ylabel("Amplitude")
-plt.legend()
-plt.grid(True)
+print(f"Найденный сдвиг: {offset}")
+
+bits = demapper(symbols, 5)
+
+print(bits)
+
+create_dplot(np.arange(len(samples)), np.real(samples), 'b', "Re (до CFO)",
+             np.arange(len(samples)), np.imag(samples), 'r', "Im (до CFO)",
+             "Индекс, n", "Амплитуда", "Исходные отсчёты")
+
+create_dplot(np.arange(len(filtered)), np.real(filtered), 'b', "Re (после CFO + MF)",
+             np.arange(len(filtered)), np.imag(filtered), 'r', "Im (после CFO + MF)",
+             "Индекс, n", "Амплитуда", "Отсчёты после коррекции")
+
+create_constellation(np.real(symbols), np.imag(symbols),
+                     "Re", "Im", f"Созвездие QPSK (CFO = {est_cfo:.1f} Гц)")
+
 plt.show()
 
-symbol_period = 10
-start_index = 9
-num_symbols = (len(sample) - start_index) // symbol_period
-eye_matrix = np.reshape(sample[start_index:start_index + num_symbols*symbol_period],
-                        (num_symbols, symbol_period))
-
-plt.figure(figsize=(10, 5))
-for row in eye_matrix:
-    plt.plot(np.arange(symbol_period), np.real(row), 'b', alpha=0.3)
-    plt.plot(np.arange(symbol_period), np.imag(row), 'r', alpha=0.3)
-
-plt.title("Глазковая диаграмма (Eye Diagram)")
-plt.xlabel("Сэмплы внутри символа")
-plt.ylabel("Амплитуда")
-plt.grid(True)
-plt.show()
-
-plt.figure()
-plt.scatter(np.real(symbols), np.imag(symbols), color='purple', s=20)
-plt.axhline(0, color='k', linewidth=0.5)
-plt.axvline(0, color='k', linewidth=0.5)
-plt.title("Созвездие (Constellation Diagram)")
-plt.xlabel("I")
-plt.ylabel("Q")
-plt.grid()
-plt.axis('equal')
-plt.show()

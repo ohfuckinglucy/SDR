@@ -1,20 +1,19 @@
 #include "../include/header.h"
 #include <iostream>
 #include <ctime>
-#include <string.h>
-#include <unistd.h>
 
 using namespace std;
+template<typename T>
+void Show_Array(const char* title, T *array, int len);
+
 
 int main(int argc, char *argv[]){
-    if (argc < 3) {
-        printf("Usage: %s <pluto_addr> <tx|rx>\n", argv[0]);
-        return -1;
-    }
-
-    bool is_tx = (strcmp(argv[2], "tx") == 0);
-
     struct SDRConfig config = SDRinit(argv[1]);
+
+    FILE *rx = fopen("rx.pcm", "wb");
+    if (rx == NULL){
+        perror("fopen: ");
+    }
 
     int n = 200000;
 
@@ -34,7 +33,7 @@ int main(int argc, char *argv[]){
         bits[i] = (rand() % 2);
     }
 
-    int len_symbols = bits_len/2;
+    int len_symbols = bits_len;
     complex<double> *symbols = (complex<double>*)malloc(len_symbols * sizeof(complex<double>)); // Массив Символов
 
     int L = 10;
@@ -46,8 +45,8 @@ int main(int argc, char *argv[]){
         impulse[i] = 1;
     }
 
-    Mapper_QPSK(bits, bits_len, symbols, len_symbols);
-    // Mapper_BPSK(bits, bits_len, symbols, len_symbols);
+    // Mapper_QPSK(bits, bits_len, symbols, len_symbols);
+    Mapper_BPSK(bits, bits_len, symbols, len_symbols);
 
     UpSampler(symbols, len_symbols, symbols_ups, L);
     filter(symbols_ups, len_symbols_ups, impulse, L);
@@ -61,60 +60,34 @@ int main(int argc, char *argv[]){
         tx_samples[2*i + 1] = (int16_t)((imag(symbols_ups[i])) * 2000); // Q
     }
 
-    // Show_Array("tx_samples", tx_samples, 2*len_symbols_ups);
-
     int flags;
     long long timeNs;
+    long long last_time = 0;
     long timeoutUs = 4000000;
+    flags = SOAPY_SDR_HAS_TIME;
 
-    if (is_tx) {
-        usleep(100000);
+    void *rx_buffs[] = {config.rx_buffer};
+    
+    int count = (2*len_symbols_ups) / (1920*2);
 
-        int total_csamples = len_symbols_ups;
-        int sent = 0;
-        long long timeNs = 0;
+    int i_max = max(1, count);
 
-        while (sent < total_csamples) {
-            int to_send = (total_csamples - sent > config.tx_mtu) ? config.tx_mtu : (total_csamples - sent);
+    cout << "imax " << i_max << endl;
 
-            void *tx_buffs[] = { (void*)(tx_samples + 2 * sent) };
+    for (int i = 0; i < i_max; i++)
+    {
+        void *tx_buffs[] = {tx_samples + i * 1920*2};
 
-            int st = SoapySDRDevice_writeStream(
-                config.sdr, config.txStream,
-                tx_buffs,
-                to_send,
-                &flags,
-                timeNs,
-                timeoutUs
-            );
+        int sr = SoapySDRDevice_readStream(config.sdr, config.rxStream, rx_buffs, config.rx_mtu, &flags, &timeNs, timeoutUs);
 
-            if (st < 0) {
-                printf("TX failed: %d\n", st);
-                break;
-            }
+        long long tx_time = timeNs + (4 * 1000 * 1000); // Schedule TX 4ms ahead
+        int st = SoapySDRDevice_writeStream(config.sdr, config.txStream, (const void * const*)tx_buffs, config.tx_mtu, &flags, tx_time, timeoutUs);
 
-            printf("tx %d samples\n", st);
-            timeNs += (long long)(st * (1e9 / config.sample_rate));
-            sent += st;
-            if (sent > total_csamples){
-                sent = 0;
-            }
-        }
-    }else { // rx
-        FILE *rx = fopen("rx.pcm", "wb");
-        if (rx == NULL){
-            perror("fopen: ");
-        }
-        void *rx_buffs[] = { config.rx_buffer };
-        while (true) {
-            // sleep(1);
-            int sr = SoapySDRDevice_readStream(config.sdr, config.rxStream,
-                        rx_buffs, config.rx_mtu,
-                        &flags, &timeNs, timeoutUs);
-            fwrite(rx_buffs[0], sizeof(int16_t), 2*sr, rx);
-            printf("rx\n");
-        }
-        fclose(rx);
+        if (st < 0)
+            printf("TX Failed on buffer %zu: %i\n", i, st);
+        printf("Buffer: %lu - Samples: %i, Flags: %i, Time: %lli, TimeDiff: %lli\n", i, sr, flags, timeNs, (timeNs - last_time) * (last_time > 0));
+        fwrite(rx_buffs[0], sizeof(int16_t), 2 * config.rx_mtu, rx);
+        last_time = tx_time;
     }
 
     SoapySDRDevice_deactivateStream(config.sdr, config.rxStream, 0, 0);
@@ -129,6 +102,7 @@ int main(int argc, char *argv[]){
     free(config.rx_buffer);
     free(symbols);
     free(symbols_ups);
+    fclose(rx);
 
     return 0;
 }

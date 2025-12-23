@@ -1,5 +1,6 @@
-CMakeFiles/main.dir/src/main.cpp.o: \
- /home/ohfuckinglucy/prog/SDR/dev/src/main.cpp /usr/include/stdc-predef.h \
+CMakeFiles/main.dir/src/functions.cpp.o: \
+ /home/ohfuckinglucy/prog/SDR/dev/src/functions.cpp \
+ /usr/include/stdc-predef.h \
  /home/ohfuckinglucy/prog/SDR/dev/src/../include/header.h \
  /usr/local/include/SoapySDR/Device.h \
  /usr/local/include/SoapySDR/Config.h \
@@ -190,11 +191,5 @@ CMakeFiles/main.dir/src/main.cpp.o: \
  /usr/include/c++/13/bits/stl_map.h \
  /usr/include/c++/13/bits/stl_multimap.h \
  /usr/include/c++/13/bits/erase_if.h /usr/include/c++/13/iostream \
- /usr/include/c++/13/ctime /usr/include/string.h /usr/include/strings.h \
- /usr/include/unistd.h /usr/include/x86_64-linux-gnu/bits/posix_opt.h \
- /usr/include/x86_64-linux-gnu/bits/environments.h \
- /usr/include/x86_64-linux-gnu/bits/confname.h \
- /usr/include/x86_64-linux-gnu/bits/getopt_posix.h \
- /usr/include/x86_64-linux-gnu/bits/getopt_core.h \
- /usr/include/x86_64-linux-gnu/bits/unistd_ext.h \
- /usr/include/linux/close_range.h
+ /usr/include/c++/13/ctime /usr/include/c++/13/cstring \
+ /usr/include/string.h /usr/include/strings.h

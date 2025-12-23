@@ -3,35 +3,42 @@ from funcs import *
 print(f"Введите номер файла: ")
 num = input()
 
-# data = np.fromfile(f'bin/rx/rx_{num}.pcm', dtype=np.int16)
-data = np.fromfile(f'rx.pcm', dtype=np.int16)
+symbol_rate = 100000 
+Fs = 1000000
+Nsps = 10
+Nt = 13
+L = np.ones(Nsps)
 
+if (num == "0"):
+    data = np.fromfile('rx.pcm', dtype=np.int16)
+else:
+    data = np.fromfile(f'bin/rx/rx_{num}.pcm', dtype=np.int16)
 
-samples = data[0::2] + 1j * data[1::2]
+signal = data[0::2] + 1j * data[1::2]
+signal = signal / np.max(np.abs(signal))
+# signal = signal[100000:500000]
 
-N = len(samples)
+filtered = np.convolve(signal, L, mode='same')
+# filtered = trim_signal_by_energy(filtered, Nsps=Nsps)
+# symbols, error, offset_list, offset = sym_sync(filtered)
+symbols = filtered[::10]
 
-samples = samples/np.max(np.real(samples))
+f_cfo, autocor = cfo_estimation(symbols, symbol_rate, Nt)
+print(f"Оценённый CFO: {f_cfo} Гц")
 
-# samples = samples[40000:44000]
+corrected_signal = cfo_correct(signal, f_cfo, Fs)
+filtered_cfo = np.convolve(corrected_signal, L, mode='same')
+filtered_cfo = costas_loop(filtered_cfo)
+symbols_cfo, error, offset_list, offset = sym_sync(filtered_cfo)
 
-L = np.ones(10)
+# create_plot(np.arange(len(autocor)), autocor)
+create_dplot(np.arange(len(signal)), np.real(signal), 'b', "Реальная часть", np.arange(len(signal)), np.imag(signal), 'r', "Мнимая часть", "Индекс, n", "Амплитуда, А", "Исходные семплы")
+# create_dplot(np.arange(len(corrected_signal)), np.real(corrected_signal), 'b', "Реальная часть", np.arange(len(corrected_signal)), np.imag(corrected_signal), 'r', "Мнимая часть", "Индекс, n", "Амплитуда, А", "Correct семплы")
+# create_dplot(np.arange(len(filtered)), np.real(filtered), 'b', "Реальная часть", np.arange(len(filtered)), np.imag(filtered), 'r', "Мнимая часть", "Индекс, n", "Амплитуда, А", "Семплы после свертки")
+# create_dplot(np.arange(len(symbols)), np.real(symbols), 'b', "Реальная часть", np.arange(len(symbols)), np.imag(symbols), 'r', "Мнимая часть", "Индекс, n", "Амплитуда, А", "Исправленный CFO семплы")
 
-sample = np.convolve(samples, L, mode='same')
+create_constellation(np.real(filtered), np.imag(filtered), 'Реальная часть', "Мнимая часть", "Созвездие Costas Loop")
+create_constellation(np.real(symbols), np.imag(symbols), 'Реальная часть', "Мнимая часть", "Созвездие Gardner")
+create_constellation(np.real(symbols_cfo), np.imag(symbols_cfo), 'Реальная часть', "Мнимая часть", "Созвездие CFO")
 
-sample = trim_signal_by_energy(sample)
-
-symbols, error, offset_list, offset = sym_sync(sample)
-
-# symbols = costas_loop(symbols)
-
-print(f'Найденный сдвиг: {offset}')
-
-demapper(symbols, 5)
-
-create_dplot(np.arange(len(samples)), np.real(samples), 'b', "Реальная часть", np.arange(len(samples)), np.imag(samples), 'r', "Мнимая часть", "Индекс, n", "Амплитуда, А", "Исходные семплы")
-# create_dplot(np.arange(len(error_list)), error_list, 'r', "Error", np.arange(len(offset_list)), offset_list, 'b', "offset", "", "", "TED")
-create_dplot(np.arange(len(sample)), np.real(sample), 'b', "Реальная часть", np.arange(len(sample)), np.imag(sample), 'r', "Мнимая часть", "Индекс, n", "Амплитуда, А", "Семплы после свертки")
-create_constellation(np.real(samples), np.imag(samples), 'Реальная часть', "Мнимая часть", "Созвездие QPSK")
-create_plot(np.arange(len(error)), error)
 plt.show()
