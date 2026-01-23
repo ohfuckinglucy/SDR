@@ -1,4 +1,4 @@
-#include "../include/header.h"
+#include "header.h"
 #include <iostream>
 #include <ctime>
 #include <cstring>
@@ -41,7 +41,7 @@ SDRConfig SDRinit(char *usb) {
     SoapySDRKwargs_clear(&args);
 
     config.sample_rate = 1e6;
-    config.carrier_freq = 770e6;
+    config.carrier_freq = 734750000;
 
     SoapySDRDevice_setSampleRate(config.sdr, SOAPY_SDR_RX, 0, config.sample_rate);
     SoapySDRDevice_setFrequency(config.sdr, SOAPY_SDR_RX, 0, config.carrier_freq, nullptr);
@@ -49,7 +49,7 @@ SDRConfig SDRinit(char *usb) {
     SoapySDRDevice_setFrequency(config.sdr, SOAPY_SDR_TX, 0, config.carrier_freq, nullptr);
 
     int channels = 0;
-    SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_RX, channels, 0.0);
+    SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_RX, channels, 10.0);
     SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_TX, channels, -30.0);
 
     size_t rx_channels[] = {0};
@@ -71,30 +71,24 @@ SDRConfig SDRinit(char *usb) {
     return config;
 }
 
-void Mapper_QPSK(int16_t* bits, int len_b, complex<double>* symbols, int len_s) {
-    for (int i = 0; i < len_b; i += 2) {
-        string pair_bits = std::to_string(bits[i]) + std::to_string(bits[i + 1]);
-        symbols[i / 2] = qpsk_map.at(pair_bits);
-    }
-}
-
-void Mapper_BPSK(int16_t* bits, int len_b, complex<double>* symbols, int len_s) {
-    for (int i = 0; i < len_b; ++i) {
-        double real_part = (bits[i] == 1) ? 1 : -1;
-        symbols[i] = complex<double>(real_part, 0.0);
-    }
-}
-
-void UpSampler(complex<double>* symbols, int len_s, complex<double>* symbols_ups, int L) {
-    for (int i = 0; i < len_s * L; i++) {
+vector<complex<double>> UpSampler(complex<double> *symbols, int len_s, int L){
+    vector<complex<double>> symbols_ups(len_s * L);
+    for (size_t i = 0; i < len_s*L; i++){
         symbols_ups[i] = i0;
     }
-    for (int i = 0; i < len_s; i++) {
-        symbols_ups[i * L] = symbols[i];
+    for (size_t i = 0; i < len_s; i ++){
+        symbols_ups[i*L] = symbols[i];
     }
+
+    return symbols_ups;
 }
 
-void filter(complex<double>* symbols_ups, int len_symbols_ups, complex<double>* impulse, int L) {
+void filter(complex<double>* symbols_ups, int len_symbols_ups, int L) {
+    complex<double> impulse[L]; // Импульсная хар-ка
+    for (size_t i = 0; i < L; i++){
+        impulse[i] = 1;
+    }
+
     complex<double>* sum = (complex<double>*)malloc(len_symbols_ups * sizeof(complex<double>));
     for (int i = 0; i < len_symbols_ups; i++) {
         sum[i] = complex<double>(0, 0);

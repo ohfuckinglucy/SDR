@@ -2,9 +2,9 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 def ted_gardner(samples, Nsps=10):
-    BnTs = 0.01
+    BnTs = 0.001
     zeta = np.sqrt(2)/2
-    Kp = 1
+    Kp = 4
     teta = (BnTs/Nsps)/(zeta + 1/(4*zeta))
 
     K1 = (-4*zeta*teta)/((1 + 2*zeta*teta + teta**2)*Kp)
@@ -53,6 +53,8 @@ def sym_sync(samples):
 
     for i in range(offset, len(samples), 10):
         symbols.append(samples[i])
+
+    print(f'offset: {offset}')
 
     return symbols, error, offset_list, offset
 
@@ -117,8 +119,8 @@ def costas_loop(samples):
     samples_fix = np.zeros_like(samples, dtype=complex)
 
     theta_hat = 0.0
-    Kp = 0.05
-    Ki = 0.005
+    Kp = 0.02
+    Ki = 0.0001
     integrator = 0.0
 
     for n in range(0, len(samples)):
@@ -131,6 +133,8 @@ def costas_loop(samples):
 
         integrator += error
         theta_hat += Kp*error + Ki*integrator
+
+        theta_hat = np.mod(theta_hat + np.pi, 2*np.pi) - np.pi
 
     return samples_fix
 
@@ -171,51 +175,3 @@ def cfo_corr(signal, Nt = 13):
             corr_sum += signal[m + n + Nt] * np.conjugate(signal[m + n])
         autocor.append(corr_sum)
     return autocor
-
-def cfo_estimation(symbols, s_rate=100000, Nt=13):
-    autocor = cfo_corr(symbols, Nt=Nt)
-    peak_index = np.argmax(np.abs(autocor))
-    
-    seq1 = symbols[peak_index : peak_index + Nt]
-    seq2 = symbols[peak_index + Nt : peak_index + 2*Nt]
-    
-    a = 0
-    for n in range(Nt):
-        a += np.conjugate(seq1[n]) * seq2[n]
-    
-    phase = np.angle(a)
-    
-    Ts = 1 / s_rate
-    f_cfo = phase / (2 * np.pi * Nt * Ts)
-    
-    return f_cfo, autocor
-
-def cfo_correct(symbols, f_cfo, sample_rate=100000, n0=0):
-    correct = np.zeros_like(symbols)
-
-    n = np.arange(len(correct))
-
-    correct = symbols * np.exp(-1j*2*np.pi*f_cfo*(n+n0)*(1/sample_rate))
-
-    return correct
-
-def costas_loop_bpsk(samples, Kp=0.1, Ki=0.01):
-    corrected = np.zeros_like(samples, dtype=complex)
-    phase_error = 0.0
-    integrator = 0.0
-    theta = 0.0
-
-    for n in range(len(samples)):
-        corrected[n] = samples[n] * np.exp(-1j * theta)
-        
-        I = np.real(corrected[n])
-        Q = np.imag(corrected[n])
-        phase_error = I * Q
-        
-        integrator += phase_error
-        
-        theta += Kp * phase_error + Ki * integrator
-        
-        theta = np.mod(theta + np.pi, 2*np.pi) - np.pi
-
-    return corrected

@@ -1,134 +1,84 @@
-#include "../include/header.h"
-#include <iostream>
-#include <ctime>
-#include <string.h>
-#include <unistd.h>
+#include "header.h"
+#include "modulator.h"
 
-using namespace std;
+constexpr size_t N_BUFFERS = 100000;
+constexpr long long TIMEOUT = 400000;
+constexpr long long TX_DELAY = 4000000;
 
 int main(int argc, char *argv[]){
     if (argc < 3) {
         printf("Usage: %s <pluto_addr> <tx|rx>\n", argv[0]);
         return -1;
     }
-
-    bool is_tx = (strcmp(argv[2], "tx") == 0);
-
+    srand(time(0));
     struct SDRConfig config = SDRinit(argv[1]);
 
-    int n = 200000;
-
-    srand(time(0));
-
-    int16_t barker_seq[13] = {1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1};
-    int barker_len = 13;
-
-    int16_t *bits = (int16_t*)malloc((barker_len*2 + n) * sizeof(int16_t));
-    int bits_len = barker_len * 2 + n;
-    
-    for (auto i = 0; i < 2*barker_len; i ++){
-        bits[i] = barker_seq[i%barker_len];
-    }
-
-    for (auto i = barker_len*2; i < bits_len; i ++){
-        bits[i] = (rand() % 2);
-    }
-
-    int len_symbols = bits_len/2;
-    complex<double> *symbols = (complex<double>*)malloc(len_symbols * sizeof(complex<double>)); // Массив Символов
-
+    int len_bits = 1600000;
     int L = 10;
-    int len_symbols_ups = len_symbols*L;
-    complex<double> *symbols_ups = (complex<double>*)malloc(len_symbols_ups * sizeof(complex<double>)); // Массив Символов после апсемплинга
+    
+    const int16_t barker13[13] = {1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1};
+    int16_t *bits = (int16_t*)malloc(len_bits * sizeof(int16_t));
 
-    complex<double> impulse[L]; // Импульсная хар-ка
-    for (size_t i = 0; i < L; i++){
-        impulse[i] = 1;
+    for (int i = 0; i < 26; ++i) {
+        bits[i] = barker13[i % 13];
     }
 
-    Mapper_QPSK(bits, bits_len, symbols, len_symbols);
-    // Mapper_BPSK(bits, bits_len, symbols, len_symbols);
+    for (int i = 26; i < len_bits; ++i) {
+        bits[i] = rand() % 2;
+    }
+    for (auto i = 0*2; i < len_bits; i ++) bits[i] = (rand() % 2);
 
-    UpSampler(symbols, len_symbols, symbols_ups, L);
-    filter(symbols_ups, len_symbols_ups, impulse, L);
-    // Show_Array("bits", bits, n);
-    // Show_Array("symbols", symbols, len_symbols);
+    vector<complex<double>> symbols = modulator(bits, len_bits, "QAM::16");
+    vector<complex<double>> symbols_UL = UpSampler(symbols.data(), symbols.size(), L);
+    filter(symbols_UL.data(), symbols_UL.size(), L);
 
-    int16_t *tx_samples = (int16_t*)calloc(2*len_symbols_ups, sizeof(int16_t));
+    // Show_Array("bits", bits, len_bits);
+    // Show_Array("psk", symbols.data(), symbols.size());
+    // Show_Array("UL", symbols_UL.data(), symbols_UL.size());
 
-    for (size_t i = 0; i < len_symbols_ups; i++) {
-        tx_samples[2*i] = (int16_t)((real(symbols_ups[i])) * 2000);  // I
-        tx_samples[2*i + 1] = (int16_t)((imag(symbols_ups[i])) * 2000); // Q
+    vector<int16_t> tx_samples(2 * symbols_UL.size());
+
+    for (size_t i = 0; i < symbols_UL.size(); i++) {
+        tx_samples[2*i] = (int16_t)((real(symbols_UL[i])) * 16000);  // I
+        tx_samples[2*i+1] = (int16_t)((imag(symbols_UL[i])) * 16000); // Q
     }
 
-    // Show_Array("tx_samples", tx_samples, 2*len_symbols_ups);
+    FILE *rx = fopen("rx.pcm", "wb"); 
 
-    int flags;
-    long long timeNs;
-    long timeoutUs = 4000000;
+    size_t total_samples = tx_samples.size();
+    size_t samples_sent = 0;
 
-    if (is_tx) {
-        usleep(100000);
+    int cnt = 0;
+    cout << "Send " << N_BUFFERS << " buffers:" << endl;
+    for (size_t samples_sent = 0; samples_sent < symbols_UL.size(); ++samples_sent) {
+        size_t to_send = min(static_cast<size_t>(config.tx_mtu),
+                          symbols_UL.size() - samples_sent);
 
-        int total_csamples = len_symbols_ups;
-        int sent = 0;
+        void *rx_buffs[] = {config.rx_buffer};
+        const void *tx_buffs[] = { tx_samples.data() + samples_sent * 2 };
+        int flags = 0;
         long long timeNs = 0;
 
-        while (sent < total_csamples) {
-            int to_send = (total_csamples - sent > config.tx_mtu) ? config.tx_mtu : (total_csamples - sent);
+        int sr = SoapySDRDevice_readStream(config.sdr, config.rxStream, rx_buffs, config.rx_mtu, &flags, &timeNs, TIMEOUT);
+        (void)sr;
+        if (strcmp(argv[2], "tx") != 0){
+            fwrite(rx_buffs[0], sizeof(int16_t), 2 * config.rx_mtu, rx);
+        }
 
-            void *tx_buffs[] = { (void*)(tx_samples + 2 * sent) };
+        long long tx_time = timeNs + TX_DELAY;
+        flags = SOAPY_SDR_HAS_TIME;
 
-            int st = SoapySDRDevice_writeStream(
-                config.sdr, config.txStream,
-                tx_buffs,
-                to_send,
-                &flags,
-                timeNs,
-                timeoutUs
-            );
-
-            if (st < 0) {
-                printf("TX failed: %d\n", st);
-                break;
+        if (strcmp(argv[2], "tx") == 0){
+            if (samples_sent % 520 == 0 && samples_sent != 0) {
+                cnt++;
+                cout << "Seconds: " << cnt << "\t" << "Buffers: " << samples_sent << endl;
             }
-
-            printf("tx %d samples\n", st);
-            timeNs += (long long)(st * (1e9 / config.sample_rate));
-            sent += st;
-            if (sent > total_csamples){
-                sent = 0;
-            }
+            int st = SoapySDRDevice_writeStream(config.sdr, config.txStream, tx_buffs, to_send, &flags, tx_time, TIMEOUT);
+            (void)st;
         }
-    }else { // rx
-        FILE *rx = fopen("rx.pcm", "wb");
-        if (rx == NULL){
-            perror("fopen: ");
-        }
-        void *rx_buffs[] = { config.rx_buffer };
-        while (true) {
-            // sleep(1);
-            int sr = SoapySDRDevice_readStream(config.sdr, config.rxStream,
-                        rx_buffs, config.rx_mtu,
-                        &flags, &timeNs, timeoutUs);
-            fwrite(rx_buffs[0], sizeof(int16_t), 2*sr, rx);
-            printf("rx\n");
-        }
-        fclose(rx);
     }
 
-    SoapySDRDevice_deactivateStream(config.sdr, config.rxStream, 0, 0);
-    SoapySDRDevice_deactivateStream(config.sdr, config.txStream, 0, 0);
-
-    SoapySDRDevice_closeStream(config.sdr, config.rxStream);
-    SoapySDRDevice_closeStream(config.sdr, config.txStream);
-
-    SoapySDRDevice_unmake(config.sdr);
-
-    free(config.tx_buff);
-    free(config.rx_buffer);
-    free(symbols);
-    free(symbols_ups);
-
+    fclose(rx);
+    
     return 0;
 }

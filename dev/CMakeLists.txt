@@ -12,7 +12,8 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 # Исходные файлы
 set(SOURCE_FILES
     src/main.cpp
-    src/functions.cpp
+    functions/functions.cpp
+    functions/modulator.cpp
 )
 
 # Добавляем исполняемый файл

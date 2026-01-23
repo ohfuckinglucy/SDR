@@ -9,10 +9,14 @@
 #include <complex>
 #include <map>
 #include <string>
+#include <iostream>
+#include <ctime>
+#include <string.h>
+#include <unistd.h>
+#include <vector>
+#include <algorithm>
 
-using std::complex;
-using std::map;
-using std::string;
+using namespace std;
 
 struct SDRConfig {
     SoapySDRDevice* sdr;
@@ -31,12 +35,9 @@ void Show_Array(const char* title, T* array, int len);
 
 SDRConfig SDRinit(char *usb);
 
-void Mapper_QPSK(int16_t* bits, int len_b, complex<double>* symbols, int len_s);
-void Mapper_BPSK(int16_t* bits, int len_b, complex<double>* symbols, int len_s);
+vector<complex<double>> UpSampler(complex<double>* symbols, int len_s, int L);
 
-void UpSampler(complex<double>* symbols, int len_s, complex<double>* symbols_ups, int L);
-
-void filter(complex<double>* symbols_ups, int len_symbols_ups, complex<double>* impulse, int L);
+void filter(complex<double>* symbols_ups, int len_symbols_ups, int L);
 
 extern const complex<double> i0;
 extern const complex<double> i1;

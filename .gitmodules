@@ -1,13 +1,13 @@
 [submodule "SoapyPlutoSDR"]
-	path = SoapyPlutoSDR
+	path = thirdparty/SoapyPlutoSDR
 	url = https://github.com/TelecomDep/SoapyPlutoSDR.git
 	branch = sdr_gadget_timestamping
 [submodule "SoapySDR"]
-	path = SoapySDR
+	path = thirdparty/SoapySDR
 	url = https://github.com/pothosware/SoapySDR.git
 [submodule "libiio"]
-	path = libiio
+	path = thirdparty/libiio
 	url = https://github.com/analogdevicesinc/libiio.git
 [submodule "libad9361-iio"]
-	path = libad9361-iio
+	path = thirdparty/libad9361-iio
 	url = https://github.com/analogdevicesinc/libad9361-iio.git

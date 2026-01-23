@@ -1,3 +1,0 @@
-/home/ohfuckinglucy/prog/SDR/dev/build/CMakeFiles/main.dir
-/home/ohfuckinglucy/prog/SDR/dev/build/CMakeFiles/edit_cache.dir
-/home/ohfuckinglucy/prog/SDR/dev/build/CMakeFiles/rebuild_cache.dir

@@ -46,13 +46,16 @@ void Mapper(int16_t *bits, int len_b, complex<double> *symbols, int len_s){
     }
 }
 
-void UpSampler(complex<double> *symbols, int len_s, complex<double> *symbols_ups, int L){
+vector<complex<double>> UpSampler(complex<double> *symbols, int len_s, int L){
+    vector<complex<double>> symbols_ups(len_s * L);
     for (size_t i = 0; i < len_s*L; i++){
         symbols_ups[i] = i0;
     }
     for (size_t i = 0; i < len_s; i ++){
         symbols_ups[i*L] = symbols[i];
     }
+
+    return symbols_ups;
 }
 
 void filter(complex<double> *symbols_ups, int len_symbols_ups, int L, int16_t type) {
