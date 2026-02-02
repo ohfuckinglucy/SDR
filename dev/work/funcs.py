@@ -175,3 +175,21 @@ def cfo_corr(signal, Nt = 13):
             corr_sum += signal[m + n + Nt] * np.conjugate(signal[m + n])
         autocor.append(corr_sum)
     return autocor
+
+def normalized_correlation(signal, template):
+    n = len(template)
+    m = len(signal)
+    corr = np.zeros(m - n + 1, dtype=complex)
+    template_energy = np.sum(np.abs(template)**2)
+    
+    for i in range(len(corr)):
+        segment = signal[i:i+n]
+        signal_energy = np.sum(np.abs(segment)**2)
+        if signal_energy == 0:
+            corr[i] = 0
+        else:
+            corr[i] = np.sum(segment * np.conj(template)) / np.sqrt(template_energy * signal_energy)
+    return corr
+# create_dplot(np.arange(len(signal)), np.real(signal), 'b', "Реальная часть", np.arange(len(signal)), np.imag(signal), 'r', "Мнимая часть", "Индекс, n", "Амплитуда, А", "Исходные семплы")
+# # create_dplot(np.arange(len(symbols)), np.real(symbols), 'b', "Реальная часть", np.arange(len(symbols)), np.imag(symbols), 'r', "Мнимая часть", "Индекс, n", "Амплитуда, А", "Исправленный CFO семплы")
+# create_constellation(np.real(symbols), np.imag(symbols), 'Реальная часть', "Мнимая часть", "Созвездие Gardner")
