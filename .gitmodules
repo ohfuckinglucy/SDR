@@ -11,3 +11,10 @@
 [submodule "libad9361-iio"]
 	path = thirdparty/libad9361-iio
 	url = https://github.com/analogdevicesinc/libad9361-iio.git
+[submodule "thirdparty/implot"]
+	path = thirdparty/implot
+	url = https://github.com/epezent/implot.git
+[submodule "thirdparty/imgui"]
+	path = thirdparty/imgui
+	url = https://github.com/ocornut/imgui.git
+	branch = docking

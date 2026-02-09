@@ -6,5 +6,6 @@
         "string_view": "cpp",
         "initializer_list": "cpp",
         "span": "cpp"
-    }
+    },
+    "cmake.sourceDirectory": "/mnt/c/prog/SDR/dev"
 }
