@@ -11,8 +11,10 @@
 #include <vector>
 #include <cstdlib>
 #include <ctime>
-#include <mutex>
 #include <atomic>
+
+#include <SoapySDR/Device.h>
+#include <SoapySDR/Types.h>
 
 // ImGui
 #include "imgui.h"
@@ -20,24 +22,20 @@
 #include "backends/imgui_impl_sdl2.h"
 #include "backends/imgui_impl_opengl3.h"
 
-std::atomic<bool> g_running{true};
+atomic<bool> g_running{true};
 const uint bit_size = 20000;
 const int L = 10;
 constexpr size_t N_BUFFERS = 100000;
 constexpr long long TIMEOUT = 400000;
 constexpr long long TX_DELAY = 4000000;
 
-struct SharedData{
-    std::vector<int16_t> bits;
-    std::vector<std::complex<double>> tx;
-    std::mutex mtx;
-    char* usb;
-    char* type;
-    std::vector<int16_t> buffer;
-};
-
 void Backend(SharedData& sd) {
-    struct SDRConfig config = SDRinit(sd.usb);
+    string uri;
+    {
+        lock_guard<mutex> lock(sd.mtx);
+        uri = sd.selected_uri;
+    }
+    struct SDRConfig config = SDRinit(const_cast<char*>(uri.c_str()), sd);
     sd.bits.resize(bit_size);
     const int16_t barker13[13] = {1,1,1,1,1,0,0,1,1,0,1,0,1};
     for (int i = 0; i < 26; ++i) {
@@ -47,11 +45,11 @@ void Backend(SharedData& sd) {
         sd.bits[i] = rand() % 2;
     }
 
-    std::vector<std::complex<double>> symbols = modulator(sd.bits.data(), bit_size, "QAM::4");
-    std::vector<std::complex<double>> symbols_UL = UpSampler(symbols.data(), symbols.size(), L);
-    filter(symbols_UL.data(), symbols_UL.size(), L);
+    vector<complex<double>> symbols = modulator(sd.bits.data(), bit_size, "QAM::16");
+    vector<complex<double>> symbols_UL = UpSampler(symbols.data(), symbols.size(), L);
+    // filter(symbols_UL.data(), symbols_UL.size(), L);
     
-    std::vector<int16_t> tx_samples(2 * symbols_UL.size());
+    vector<int16_t> tx_samples(2 * symbols_UL.size());
     
     for (size_t i = 0; i < symbols_UL.size(); i++) {
         tx_samples[2*i] = (int16_t)((real(symbols_UL[i])) * 16000);  // I
@@ -64,7 +62,7 @@ void Backend(SharedData& sd) {
         if (g_running == 0){
             exit(1);
         }
-        size_t to_send = std::min(static_cast<size_t>(config.tx_mtu),
+        size_t to_send = min(static_cast<size_t>(config.tx_mtu),
         symbols_UL.size() - samples_sent);
         
         void *rx_buffs[] = {config.rx_buffer};
@@ -73,12 +71,11 @@ void Backend(SharedData& sd) {
         long long timeNs = 0;
         
         int sr = SoapySDRDevice_readStream(config.sdr, config.rxStream, rx_buffs, config.rx_mtu, &flags, &timeNs, TIMEOUT);
-        (void)sr;
         
         long long tx_time = timeNs + TX_DELAY;
         flags = SOAPY_SDR_HAS_TIME;
         
-        if (strcmp(sd.type, "tx") == 0){
+        if (strcmp(sd.type, "rx") == 0){
             if (samples_sent % 520 == 0 && samples_sent != 0) {
                 cnt++;
             }
@@ -86,23 +83,60 @@ void Backend(SharedData& sd) {
             (void)st;
         }
 
-        if (strcmp(sd.type, "rx") != 0){
-            continue;
-        }
-        
+        if ((strcmp(sd.type, "rx") != 0) || (sr <= 0)) continue;
+
         int16_t* data_ptr = static_cast<int16_t*>(config.rx_buffer);
         
         {
-            std::lock_guard<std::mutex> lock(sd.mtx);
-            for(int i = 0; i < config.rx_mtu*2; i ++)
-                sd.buffer.push_back(data_ptr[i]); 
-        }
-        if (sd.buffer.size() > 50000){
-            sd.buffer.erase(sd.buffer.begin(), sd.buffer.begin() + sd.buffer.size() - 50000);
-        }
+            lock_guard<mutex> lock(sd.mtx);
 
-        
+            for (int i = 0; i < sr; ++i) {
+                double I = static_cast<double>(data_ptr[2*i]);
+                double Q = static_cast<double>(data_ptr[2*i + 1]);
+
+                complex<double> x(I, Q);
+
+                if (sd.filter_enabled){
+                    x = mf_filter(sd, x);
+                }
+                if (sd.costas_loop_enabled){
+                    x = costas_loop(sd, x);
+                }
+
+                sd.raw_buffer.push_back(x);
+            }
+
+            if (sd.raw_buffer.size() > SharedData::MAX_SAMPLES) {
+                sd.raw_buffer.erase(sd.raw_buffer.begin(), sd.raw_buffer.end() - SharedData::MAX_SAMPLES);
+            }
+            if (sd.sym_sync_enabled) {
+                sym_sync(sd, sd.raw_buffer);
+                sd.symbols.clear();
+                for (int i = sd.ss_offset; i < sd.raw_buffer.size(); i += SharedData::Nsp) {
+                    sd.symbols.push_back(sd.raw_buffer[i]);
+                }
+                if (sd.symbols.size() > SharedData::MAX_SYMBOLS) {
+                    sd.symbols.erase(sd.symbols.begin(), sd.symbols.end() - SharedData::MAX_SYMBOLS);
+                }
+            } else {
+                sd.symbols = sd.raw_buffer;
+            }
+        }
     }
+}
+
+vector<SoapySDRKwargs> find_pluto_devices() {
+    SoapySDRKwargs args = {};
+    SoapySDRKwargs_set(&args, "driver", "plutosdr");
+    
+    size_t length;
+    SoapySDRKwargs *devices = SoapySDRDevice_enumerate(&args, &length);
+    
+    std::vector<SoapySDRKwargs> result(devices, devices + length);
+    
+    SoapySDRKwargs_clear(&args);
+    
+    return result;
 }
 
 int main(int argc, char *argv[]) {
@@ -110,17 +144,24 @@ int main(int argc, char *argv[]) {
         printf("Usage: %s <pluto_addr> <tx|rx>\n", argv[0]);
         return -1;
     }
-    SharedData shared_data;
 
-    shared_data.usb = argv[1];
-    shared_data.type = argv[2];
+    auto sdr_devices = find_pluto_devices();
+    int selected_device_index = 0;
 
-    std::thread Back(Backend, std::ref(shared_data));
+    SharedData sd;
 
-    if (strcmp(shared_data.type, "rx") == 0){
+    sd.mf_delay.resize(sd.mf_L - 1, 0.0);
+
+    thread Back;
+    bool backend_started = false;
+
+    sd.usb = argv[1];
+    sd.type = argv[2];
+
+    if (strcmp(sd.type, "rx") == 0){
 
         if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
-            std::cerr << "SDL_Init Error: " << SDL_GetError() << std::endl;
+            cerr << "SDL_Init Error: " << SDL_GetError() << endl;
             return -1;
         }
     
@@ -135,12 +176,14 @@ int main(int argc, char *argv[]) {
         ImGui::CreateContext();
         ImPlot::CreateContext();
         ImGuiIO& io = ImGui::GetIO();
-        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-        io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+
+        ImGui::LoadIniSettingsFromDisk(io.IniFilename);
     
         ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
         ImGui_ImplOpenGL3_Init("#version 330");
     
+        ImVec2 plotsize(1600, 600);
     
         // Главный цикл
         bool running = true;
@@ -149,87 +192,198 @@ int main(int argc, char *argv[]) {
             while (SDL_PollEvent(&event)) {
                 ImGui_ImplSDL2_ProcessEvent(&event);
                 if (event.type == SDL_QUIT)
-                    running = false;
+                running = false;
                 if (event.type == SDL_QUIT) {
                     running = false;
                     g_running = false;
                 }
             }
-    
+            
             // Начало ImGui-фрейма
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplSDL2_NewFrame();
             ImGui::NewFrame();
-    
-            // Окно: входные биты
-            ImGui::Begin("Input Bits");
-            {
-                std::lock_guard<std::mutex> lock(shared_data.mtx);
-                for (int i = 0; i < std::min(100, (int)shared_data.bits.size()); ++i) {
-                    ImGui::SameLine();
-                    ImGui::Text("%d", (int)shared_data.bits[i]);
-                    if ((i + 1) % 20 == 0) ImGui::Text("");
-                }
-            }
-            ImGui::End();
-    
-            // Окно: управление
-            ImGui::Begin("Control");
-            if (ImGui::Button("Regenerate Bits")) {
-                for (int i = 26; i < bit_size; ++i) {
-                    shared_data.bits[i] = rand() % 2;
-                }
-            }
-            ImGui::Text("Total bits: %d", bit_size);
-            ImGui::End();
 
-            ImVec2 plotsize(1600, 600);
+            if (ImGui::BeginMainMenuBar()) {
+                if (ImGui::BeginMenu("Device")) {
+                    for (size_t i = 0; i < sdr_devices.size(); ++i) {
+                        const char* label = SoapySDRKwargs_get(&sdr_devices[i], "label");
+                        const char* uri = SoapySDRKwargs_get(&sdr_devices[i], "uri");
+                        bool is_selected = (static_cast<size_t>(selected_device_index) == i);
+                        
+                        if (ImGui::MenuItem(label, nullptr, is_selected)) {
+                            selected_device_index = static_cast<int>(i);
+                            {
+                                lock_guard<mutex> lock(sd.mtx);
+                                sd.selected_uri = uri ? string(uri) : "";
+                            }
+                        }
+                    }
+                    ImGui::EndMenu();
+                }
 
-            std::vector<double> plot_real, plot_imag;
-            {
-                std::lock_guard<std::mutex> lock(shared_data.mtx);
-                if (!shared_data.buffer.empty()) {
-                    for (size_t i = 0; i + 1 < shared_data.buffer.size(); i += 2) {
-                        plot_real.push_back(static_cast<double>(shared_data.buffer[i]));
-                        plot_imag.push_back(static_cast<double>(shared_data.buffer[i+1]));
+                if (ImGui::MenuItem("Start", nullptr, false, !backend_started)) {
+                    if (sd.selected_uri.empty()) {
+                        sd.selected_uri = SoapySDRKwargs_get(&sdr_devices[0], "uri");
+                    }
+                    Back = thread(Backend, ref(sd));
+                    backend_started = true;
+                }
+
+                if (ImGui::MenuItem("Exit", nullptr, false, true)) {
+                    g_running = false;
+                    if (backend_started) {
+                        Back.join();
+                    }
+                    running = false;
+                }
+
+                ImGui::EndMainMenuBar();
+            }
+            ImGuiViewport* vp = ImGui::GetMainViewport();
+            ImGui::SetNextWindowPos(ImVec2(vp->Pos.x, vp->Pos.y + ImGui::GetFrameHeight()));
+            ImGui::SetNextWindowSize(ImVec2(260, vp->Size.y - ImGui::GetFrameHeight()));
+
+            ImGui::Begin("Control Panel", nullptr,
+                ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoResize |
+                ImGuiWindowFlags_NoCollapse);
+
+            float tx_gain = sd.tx_gain;
+            if (ImGui::SliderFloat("tx gain", &tx_gain, -90, 40)) {
+                lock_guard<mutex> lock(sd.mtx);
+                sd.tx_gain = tx_gain;
+            }
+
+            float rx_gain = sd.rx_gain;
+            if (ImGui::SliderFloat("rx gain", &rx_gain, -90, 40)) {
+                lock_guard<mutex> lock(sd.mtx);
+                sd.rx_gain = rx_gain;
+            }
+
+            int freq = sd.freq;
+            if (ImGui::SliderInt("Carrier Freq", &freq, 200000000, 900000000)){
+                lock_guard<mutex> lock(sd.mtx);
+                sd.freq = freq;
+            }
+
+            bool enabled = sd.filter_enabled;
+            if (ImGui::Checkbox("Enable Square Filter", &enabled)) {
+                {
+                    lock_guard<mutex> lock(sd.mtx);
+                    sd.filter_enabled = enabled;
+                    
+                    if (!enabled) {
+                        sd.mf_init = false;
+                        sd.mf_index = 0;
+                        sd.mf_sum = complex<double>(0.0);
+                        fill(sd.mf_delay.begin(), sd.mf_delay.end(), complex<double>(0.0));
                     }
                 }
             }
 
-            if (ImPlot::BeginPlot("Scatter Plot", plotsize)){
-                if (!plot_real.empty()) {
-                    ImPlot::PlotScatter("Plot", plot_real.data(), plot_imag.data(), plot_real.size());
-                }
-                ImPlot::EndPlot();
+            int L = sd.mf_L;
+            if (ImGui::SliderInt("Filter Length", &L, 2, 50)) {
+                lock_guard<mutex> lock(sd.mtx);
+                sd.mf_L = L;
+                sd.mf_delay.resize(L - 1, 0.0);
+                sd.mf_init = false;
+                sd.mf_index = 0;
+                sd.mf_sum = 0.0;
             }
-    
-            if (ImPlot::BeginPlot("Modulated Signal", plotsize)) {
-                if (!plot_real.empty()) {
-                    ImPlot::PlotLine("I", plot_real.data(), plot_real.size());
-                    ImPlot::PlotLine("Q", plot_imag.data(), plot_imag.size());
-                }
-                ImPlot::EndPlot();
+
+            bool sync_enabled = sd.sym_sync_enabled;
+            if (ImGui::Checkbox("Symbol Sync", &sync_enabled)) {
+                sd.sym_sync_enabled = sync_enabled;
             }
-    
-            // Рендеринг
-            glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
-            ImGui::Render();
-            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-            SDL_GL_SwapWindow(window);
+            float BnTs = sd.BnTs;
+            if (ImGui::SliderFloat("Bnts", &BnTs, 0, 1)) {
+                lock_guard<mutex> lock(sd.mtx);
+                sd.BnTs = BnTs;
+            }
+            ImGui::Text("Offset: %d", sd.ss_offset);
+
+            ImGui::Checkbox("Costas Loop", &sd.costas_loop_enabled);
+            ImGui::SliderFloat("Kp", &sd.cl_Kp, 0.0f, 0.3f);
+            ImGui::SliderFloat("Ki", &sd.cl_Ki, 0.0f, 0.3f);
+
+            ImGui::End();
+        ImGui::SetNextWindowPos(ImVec2(
+            vp->Pos.x + 260,
+            vp->Pos.y + ImGui::GetFrameHeight()
+        ));
+        ImGui::SetNextWindowSize(ImVec2(
+            vp->Size.x - 260,
+            vp->Size.y - ImGui::GetFrameHeight()
+        ));
+
+        ImGui::Begin("Plots",
+            nullptr,
+            ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoCollapse |
+            ImGuiWindowFlags_NoTitleBar
+        );
+
+        ImVec2 size(2000,600);
+
+        if (ImPlot::BeginPlot("Scatter Plot", size)) {
+            vector<double> plot_real, plot_imag;
+            {
+                lock_guard<mutex> lock(sd.mtx);
+                for (auto& s : sd.symbols) {
+                    plot_real.push_back(s.real());
+                    plot_imag.push_back(s.imag());
+                }
+            }
+            if (!plot_real.empty())
+                ImPlot::PlotScatter("IQ", plot_real.data(), plot_imag.data(), plot_real.size());
+            ImPlot::EndPlot();
         }
-        
-        // Очистка
-        ImGui_ImplOpenGL3_Shutdown();
-        ImGui_ImplSDL2_Shutdown();
-        ImPlot::DestroyContext();
-        ImGui::DestroyContext();
-        
-        SDL_GL_DeleteContext(gl_context);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
+
+        if (ImPlot::BeginPlot("Modulated Signal", size)) {
+            vector<double> I, Q;
+            {
+                lock_guard<mutex> lock(sd.mtx);
+                for (auto& s : sd.raw_buffer) {
+                    I.push_back(s.real());
+                    Q.push_back(s.imag());
+                }
+            }
+            if (!I.empty()) {
+                ImPlot::PlotLine("I", I.data(), I.size());
+                ImPlot::PlotLine("Q", Q.data(), Q.size());
+            }
+            ImPlot::EndPlot();
+        }
+
+        ImGui::End();
+
+        // Рендеринг
+        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+            SDL_GL_MakeCurrent(window, gl_context);
+            ImGui::UpdatePlatformWindows();
+            ImGui::RenderPlatformWindowsDefault();
+            SDL_GL_MakeCurrent(window, gl_context);
+        }
+        SDL_GL_SwapWindow(window);
     }
-    Back.join();
+    
+    // Очистка
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplSDL2_Shutdown();
+    ImPlot::DestroyContext();
+    ImGui::DestroyContext();
+    
+    SDL_GL_DeleteContext(gl_context);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+}
 
     return 0;
 }

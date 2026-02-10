@@ -19,7 +19,6 @@ def ted_gardner(samples, Nsps=10):
     offset_list = []
     error = []
     for n in range(0, len(samples)//Nsps-1):
-        
         of = offset
 
         idx = of + Nsps + Nsps*n
