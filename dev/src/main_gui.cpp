@@ -85,12 +85,23 @@ void Backend(SharedData& sd) {
             int st = SoapySDRDevice_writeStream(config.sdr, config.txStream, tx_buffs, to_send, &flags, tx_time, TIMEOUT);
             (void)st;
         }
+
+        if (strcmp(sd.type, "rx") != 0){
+            continue;
+        }
         
         int16_t* data_ptr = static_cast<int16_t*>(config.rx_buffer);
+        
         {
             std::lock_guard<std::mutex> lock(sd.mtx);
-            sd.buffer.push_back(data_ptr[0]); 
+            for(int i = 0; i < config.rx_mtu*2; i ++)
+                sd.buffer.push_back(data_ptr[i]); 
         }
+        if (sd.buffer.size() > 50000){
+            sd.buffer.erase(sd.buffer.begin(), sd.buffer.begin() + sd.buffer.size() - 50000);
+        }
+
+        
     }
 }
 
@@ -103,7 +114,10 @@ int main(int argc, char *argv[]) {
 
     shared_data.usb = argv[1];
     shared_data.type = argv[2];
-    // if (shared_data.type == "rx"){
+
+    std::thread Back(Backend, std::ref(shared_data));
+
+    if (strcmp(shared_data.type, "rx") == 0){
 
         if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
             std::cerr << "SDL_Init Error: " << SDL_GetError() << std::endl;
@@ -111,7 +125,7 @@ int main(int argc, char *argv[]) {
         }
     
         SDL_Window* window = SDL_CreateWindow(
-            "PlutoSDR Modulator", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+            "PlutoSDR Modulatora", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
             1280, 720, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
         SDL_GLContext gl_context = SDL_GL_CreateContext(window);
         SDL_GL_MakeCurrent(window, gl_context);
@@ -127,7 +141,6 @@ int main(int argc, char *argv[]) {
         ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
         ImGui_ImplOpenGL3_Init("#version 330");
     
-        std::thread Back(Backend, std::ref(shared_data));
     
         // Главный цикл
         bool running = true;
@@ -170,31 +183,27 @@ int main(int argc, char *argv[]) {
             ImGui::Text("Total bits: %d", bit_size);
             ImGui::End();
 
-            if (ImPlot::BeginPlot("Scatter Plot")){
-                std::vector<double> plot_real, plot_imag;
+            ImVec2 plotsize(1600, 600);
+
+            std::vector<double> plot_real, plot_imag;
+            {
+                std::lock_guard<std::mutex> lock(shared_data.mtx);
                 if (!shared_data.buffer.empty()) {
                     for (size_t i = 0; i + 1 < shared_data.buffer.size(); i += 2) {
                         plot_real.push_back(static_cast<double>(shared_data.buffer[i]));
                         plot_imag.push_back(static_cast<double>(shared_data.buffer[i+1]));
                     }
                 }
+            }
+
+            if (ImPlot::BeginPlot("Scatter Plot", plotsize)){
                 if (!plot_real.empty()) {
                     ImPlot::PlotScatter("Plot", plot_real.data(), plot_imag.data(), plot_real.size());
                 }
                 ImPlot::EndPlot();
             }
     
-            if (ImPlot::BeginPlot("Modulated Signal")) {
-                std::vector<double> plot_real, plot_imag;
-                {
-                    std::lock_guard<std::mutex> lock(shared_data.mtx);
-                    if (!shared_data.buffer.empty()) {
-                        for (size_t i = 0; i + 1 < shared_data.buffer.size(); i += 2) {
-                            plot_real.push_back(static_cast<double>(shared_data.buffer[i]));
-                            plot_imag.push_back(static_cast<double>(shared_data.buffer[i+1]));
-                        }
-                    }
-                }
+            if (ImPlot::BeginPlot("Modulated Signal", plotsize)) {
                 if (!plot_real.empty()) {
                     ImPlot::PlotLine("I", plot_real.data(), plot_real.size());
                     ImPlot::PlotLine("Q", plot_imag.data(), plot_imag.size());
@@ -209,18 +218,18 @@ int main(int argc, char *argv[]) {
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
             SDL_GL_SwapWindow(window);
         }
-        Back.join();
-    
+        
         // Очистка
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplSDL2_Shutdown();
         ImPlot::DestroyContext();
         ImGui::DestroyContext();
-    
+        
         SDL_GL_DeleteContext(gl_context);
         SDL_DestroyWindow(window);
         SDL_Quit();
-    // }
+    }
+    Back.join();
 
     return 0;
 }
