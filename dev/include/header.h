@@ -16,7 +16,9 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <thread>
 #include <mutex>
+#include <atomic>
 
 using namespace std;
 
@@ -40,8 +42,8 @@ struct SharedData {
 
     vector<complex<double>> raw_buffer;
     vector<complex<double>> symbols;
-    static constexpr size_t MAX_SAMPLES = 15000;
-    static constexpr size_t MAX_SYMBOLS = 7000;
+    static constexpr size_t MAX_SAMPLES = 60000;
+    static constexpr size_t MAX_SYMBOLS = 30000;
 
     bool sym_sync_enabled = false;
     float BnTs = 0.001;
@@ -77,7 +79,18 @@ struct SharedData {
 
     int freq = 734750000;
 
-    string selected_uri = "usb:1.55.5";
+    string rx_uri;
+    string tx_uri;
+
+    bool g_running = true;
+    bool rx_running = false;
+    bool tx_running = false;
+    string selected_uri;
+
+    int modulation_index;
+
+    vector<SoapySDRKwargs> pluto_devices;
+    int selected_device_index = 0;
 };
 
 template<typename T>
@@ -92,6 +105,9 @@ complex<double> mf_filter(SharedData& sd, complex<double> x);
 void sym_sync(SharedData& sd, const std::vector<std::complex<double>>& buf);
 complex<double> costas_loop(SharedData& sd, complex<double> r);
 
+void Backend(SharedData& sd);
+void tx_back(SharedData& sd);
+
 extern const complex<double> i0;
 extern const complex<double> i1;
 extern const complex<double> i2;
@@ -99,5 +115,9 @@ extern const complex<double> i3;
 extern const complex<double> i4;
 
 extern const map<string, complex<double>> qpsk_map;
+
+constexpr size_t N_BUFFERS = 100000;
+constexpr long long TIMEOUT = 400000;
+constexpr long long TX_DELAY = 4000000;
 
 #endif

@@ -47,9 +47,18 @@ set(APP_SOURCES
     ${SRC_DIR}/main_gui.cpp
     ${FUNC_DIR}/modulator.cpp
     ${FUNC_DIR}/functions.cpp
+    ${FUNC_DIR}/threads.cpp
+)
+
+set(TX_SOURCES
+    ${SRC_DIR}/main_tx.cpp
+    ${FUNC_DIR}/modulator.cpp
+    ${FUNC_DIR}/functions.cpp
+    ${FUNC_DIR}/threads.cpp
 )
 
 add_executable(main.elf ${APP_SOURCES})
+add_executable(tx_main.elf ${TX_SOURCES})
 
 target_link_libraries(main.elf PRIVATE
     imgui
@@ -61,3 +70,14 @@ target_link_libraries(main.elf PRIVATE
 )
 
 target_include_directories(main.elf PRIVATE ${INCLUDE_DIR})
+
+target_link_libraries(tx_main.elf PRIVATE
+    imgui
+    implot
+    ${SDL2_LIBRARIES}
+    ${OPENGL_LIBRARIES}
+    ${GLEW_LIBRARIES}
+    ${SoapySDR_LIBRARIES}
+)
+
+target_include_directories(tx_main.elf PRIVATE ${INCLUDE_DIR})

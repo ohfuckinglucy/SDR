@@ -25,9 +25,6 @@
 atomic<bool> g_running{true};
 const uint bit_size = 20000;
 const int L = 10;
-constexpr size_t N_BUFFERS = 100000;
-constexpr long long TIMEOUT = 400000;
-constexpr long long TX_DELAY = 4000000;
 
 void Backend(SharedData& sd) {
     string uri;
@@ -60,7 +57,7 @@ void Backend(SharedData& sd) {
     cout << "Send " << N_BUFFERS << " buffers:" << endl;
     for (size_t samples_sent = 0; samples_sent < symbols_UL.size(); ++samples_sent) {
         if (g_running == 0){
-            exit(1);
+            break;
         }
         size_t to_send = min(static_cast<size_t>(config.tx_mtu),
         symbols_UL.size() - samples_sent);
@@ -75,7 +72,7 @@ void Backend(SharedData& sd) {
         long long tx_time = timeNs + TX_DELAY;
         flags = SOAPY_SDR_HAS_TIME;
         
-        if (strcmp(sd.type, "rx") == 0){
+        if (strcmp(sd.type, "tx") == 0){
             if (samples_sent % 520 == 0 && samples_sent != 0) {
                 cnt++;
             }

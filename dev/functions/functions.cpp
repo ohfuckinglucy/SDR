@@ -1,4 +1,5 @@
 #include "header.h"
+#include "modulator.h"
 #include <iostream>
 #include <ctime>
 #include <cstring>
@@ -39,6 +40,8 @@ SDRConfig SDRinit(char *usb, struct SharedData &sd) {
     SoapySDRKwargs_set(&args, "direct", "1");
     SoapySDRKwargs_set(&args, "timestamp_every", "1920");
     SoapySDRKwargs_set(&args, "loopback", "0");
+
+    cout << "Opening device: " << usb << endl;
 
     config.sdr = SoapySDRDevice_make(&args);
     SoapySDRKwargs_clear(&args);
