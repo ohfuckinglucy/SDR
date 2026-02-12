@@ -15,6 +15,9 @@ find_package(SDL2 REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(SoapySDR REQUIRED)
+find_package(PkgConfig REQUIRED)
+
+pkg_check_modules(FFTW3 REQUIRED fftw3)
 
 include_directories(${INCLUDE_DIR})
 include_directories(${SDL2_INCLUDE_DIRS})
@@ -67,9 +70,10 @@ target_link_libraries(main.elf PRIVATE
     ${OPENGL_LIBRARIES}
     ${GLEW_LIBRARIES}
     ${SoapySDR_LIBRARIES}
+    fftw3
 )
 
-target_include_directories(main.elf PRIVATE ${INCLUDE_DIR})
+target_include_directories(main.elf PRIVATE ${INCLUDE_DIR} fftw3)
 
 target_link_libraries(tx_main.elf PRIVATE
     imgui
@@ -78,6 +82,7 @@ target_link_libraries(tx_main.elf PRIVATE
     ${OPENGL_LIBRARIES}
     ${GLEW_LIBRARIES}
     ${SoapySDR_LIBRARIES}
+    fftw3
 )
 
 target_include_directories(tx_main.elf PRIVATE ${INCLUDE_DIR})

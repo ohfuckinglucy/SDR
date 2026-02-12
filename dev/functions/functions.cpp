@@ -90,22 +90,20 @@ vector<complex<double>> UpSampler(complex<double> *symbols, int len_s, int L){
 }
 
 void filter(complex<double>* symbols_ups, int len_symbols_ups, int L) {
-    complex<double> impulse[L];
-    for (size_t i = 0; i < L; i++){
-        impulse[i] = 1;
-    }
+    if (L <= 1 || len_symbols_ups <= 0) return;
 
-    complex<double>* sum = (complex<double>*)malloc(len_symbols_ups * sizeof(complex<double>));
+    vector<complex<double>> impulse(L, 1.0);
+    vector<complex<double>> sum(len_symbols_ups, 0.0);
+
     for (int i = 0; i < len_symbols_ups; i++) {
-        sum[i] = complex<double>(0, 0);
         for (int j = 0; j < L && (i - j) >= 0; j++) {
             sum[i] += impulse[j] * symbols_ups[i - j];
         }
     }
+
     for (int i = 0; i < len_symbols_ups; i++) {
         symbols_ups[i] = sum[i];
     }
-    free(sum);
 }
 
 complex<double> mf_filter(SharedData& sd, complex<double> x) {
@@ -177,4 +175,3 @@ complex<double> costas_loop(SharedData& sd, complex<double> r){
 
     return r_corrected;
 }
-

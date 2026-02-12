@@ -19,6 +19,7 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
+#include <fftw3.h>
 
 using namespace std;
 
@@ -37,13 +38,11 @@ struct SDRConfig {
 struct SharedData {
     vector<int16_t> bits;
     mutex mtx;
-    char* usb;
-    char* type;
 
     vector<complex<double>> raw_buffer;
     vector<complex<double>> symbols;
-    static constexpr size_t MAX_SAMPLES = 60000;
-    static constexpr size_t MAX_SYMBOLS = 30000;
+    static constexpr size_t MAX_SAMPLES = 30000;
+    static constexpr size_t MAX_SYMBOLS = 15000;
 
     bool sym_sync_enabled = false;
     float BnTs = 0.001;
@@ -57,8 +56,9 @@ struct SharedData {
     
     bool filter_enabled = false;
     int mf_L = 10;
-    std::vector<std::complex<double>> mf_delay;
-    std::complex<double> mf_sum = 0.0;
+    int tx_l = 10;
+    vector<complex<double>> mf_delay;
+    complex<double> mf_sum = 0.0;
     size_t mf_index = 0;
     bool mf_init = false;
 
@@ -69,10 +69,14 @@ struct SharedData {
     float cl_Ki = 0.0001;
     double cl_integrator = 0;
 
-    static constexpr size_t FFT_SIZE = 1024;
-    std::vector<std::complex<double>> fft_buffer;
-    std::vector<double> fft_magnitude;
+    vector<complex<double>> fft_buffer;
+    vector<double> fft_magnitude;
     bool fft_ready = false;
+    static constexpr size_t FFT_SIZE = 1024;
+
+    fftw_plan fft_plan = nullptr;
+    fftw_complex* fft_in = nullptr;
+    fftw_complex* fft_out = nullptr;
 
     double tx_gain = -30;
     double rx_gain = 10;
@@ -83,9 +87,10 @@ struct SharedData {
     string tx_uri;
 
     bool g_running = true;
-    bool rx_running = false;
-    bool tx_running = false;
     string selected_uri;
+    bool tx_filter = false;
+    bool loopback_flag = false;
+    bool fft_flag = false;
 
     int modulation_index;
 
@@ -102,11 +107,14 @@ vector<complex<double>> UpSampler(complex<double>* symbols, int len_s, int L);
 
 void filter(complex<double>* symbols_ups, int len_symbols_ups, int L);
 complex<double> mf_filter(SharedData& sd, complex<double> x);
-void sym_sync(SharedData& sd, const std::vector<std::complex<double>>& buf);
+void sym_sync(SharedData& sd, const vector<complex<double>>& buf);
 complex<double> costas_loop(SharedData& sd, complex<double> r);
+vector<complex<double>> filter_ret(const vector<complex<double>>& symbols_ups, int L);
 
-void Backend(SharedData& sd);
-void tx_back(SharedData& sd);
+void Backend(SharedData& sd, SDRConfig &config);
+void tx_back(SharedData& sd, SDRConfig &config);
+
+vector<SoapySDRKwargs> find_pluto_devices();
 
 extern const complex<double> i0;
 extern const complex<double> i1;
