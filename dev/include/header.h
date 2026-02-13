@@ -39,10 +39,11 @@ struct SharedData {
     vector<int16_t> bits;
     mutex mtx;
 
+    vector<int16_t> tx_samples;
     vector<complex<double>> raw_buffer;
     vector<complex<double>> symbols;
     static constexpr size_t MAX_SAMPLES = 30000;
-    static constexpr size_t MAX_SYMBOLS = 15000;
+    static constexpr size_t MAX_SYMBOLS = 70000;
 
     bool sym_sync_enabled = false;
     float BnTs = 0.001;
@@ -78,8 +79,8 @@ struct SharedData {
     fftw_complex* fft_in = nullptr;
     fftw_complex* fft_out = nullptr;
 
-    double tx_gain = -30;
-    double rx_gain = 10;
+    double tx_gain = -10;
+    double rx_gain = 20;
 
     int freq = 734750000;
 

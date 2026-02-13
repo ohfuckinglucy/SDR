@@ -56,8 +56,8 @@ void tx_back(SharedData& sd, SDRConfig &config) {
 
         vector<int16_t> tx_samples(2 * symbols_UL.size());
         for (size_t i = 0; i < symbols_UL.size(); i++) {
-            tx_samples[2*i]   = static_cast<int16_t>(real(symbols_UL[i]) * 16000);
-            tx_samples[2*i+1] = static_cast<int16_t>(imag(symbols_UL[i]) * 16000);
+            tx_samples[2*i]   = static_cast<int16_t>(real(symbols_UL[i]) * 2000);
+            tx_samples[2*i+1] = static_cast<int16_t>(imag(symbols_UL[i]) * 2000);
         }
 
         size_t total = tx_samples.size() / 2;
@@ -211,8 +211,8 @@ int main() {
 
         float tx_gain = sd.tx_gain;
         if (ImGui::SliderFloat("TX Gain", &tx_gain, -90, 40)) {
-            sd.tx_gain = tx_gain;
-            if (device_active && config.sdr) {
+            if (g_running){
+                lock_guard<mutex> lock(sd.mtx);
                 SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_TX, 0, tx_gain);
             }
         }

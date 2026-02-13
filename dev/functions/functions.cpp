@@ -55,8 +55,8 @@ SDRConfig SDRinit(char *usb, struct SharedData &sd) {
     SoapySDRDevice_setFrequency(config.sdr, SOAPY_SDR_TX, 0, config.carrier_freq, nullptr);
 
     int channels = 0;
-    SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_RX, channels, 10);
-    SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_TX, channels, -30);
+    SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_RX, channels, 20);
+    SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_TX, channels, -10);
 
     size_t rx_channels[] = {0};
     size_t tx_channels[] = {0};
@@ -131,7 +131,7 @@ complex<double> mf_filter(SharedData& sd, complex<double> x) {
 void sym_sync(SharedData& sd, const vector<complex<double>>& buf){
     if (!sd.sym_sync_enabled || buf.size() < 3) return;
 
-    double teta = (sd.BnTs / sd.Nsp) / (sd.zeta + 1.0/(4.0*sd.zeta));
+    double teta = (sd.BnTs / sd.mf_L) / (sd.zeta + 1.0/(4.0*sd.zeta));
     double Kp = 4.0;
     double K1 = (-4 * sd.zeta * teta) / ((1 + 2*sd.zeta*teta + teta*teta) * Kp);
     double K2 = (-4 * teta * teta) / ((1 + 2*sd.zeta*teta + teta*teta) * Kp);
@@ -149,8 +149,8 @@ void sym_sync(SharedData& sd, const vector<complex<double>>& buf){
     }
 
     sd.ss_last_index = buf.size();
-    sd.ss_phase = fmod(sd.ss_phase + sd.ss_p2, sd.Nsp);
-    if (sd.ss_phase < 0) sd.ss_phase += sd.Nsp;
+    sd.ss_phase = fmod(sd.ss_phase + sd.ss_p2, sd.mf_L);
+    if (sd.ss_phase < 0) sd.ss_phase += sd.mf_L;
     sd.ss_offset = static_cast<int>(sd.ss_phase);
 }
 
@@ -175,3 +175,4 @@ complex<double> costas_loop(SharedData& sd, complex<double> r){
 
     return r_corrected;
 }
+

@@ -25,8 +25,8 @@
 #include <fftw3.h>
 
 atomic<bool> g_running{false};
+
 int bit_size = 1920*2;
-int sym_size = bit_size / 2;
 
 void Backend(SharedData& sd, SDRConfig &config) {
     if (!config.sdr || !config.rxStream) {
@@ -337,14 +337,6 @@ int main() {
             ImGuiWindowFlags_NoMove |
             ImGuiWindowFlags_NoResize |
             ImGuiWindowFlags_NoCollapse);
-
-        float tx_gain = sd.tx_gain;
-        if (ImGui::SliderFloat("tx gain", &tx_gain, -90, 40)) {
-            if (g_running){
-                lock_guard<mutex> lock(sd.mtx);
-                SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_TX, 0, tx_gain);
-            }
-        }
 
         float rx_gain = sd.rx_gain;
         if (ImGui::SliderFloat("rx gain", &rx_gain, -90, 40)) {
