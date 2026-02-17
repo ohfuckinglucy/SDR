@@ -51,6 +51,7 @@ set(APP_SOURCES
     ${FUNC_DIR}/modulator.cpp
     ${FUNC_DIR}/functions.cpp
     ${FUNC_DIR}/threads.cpp
+    ${FUNC_DIR}/dsp.cpp
 )
 
 set(TX_SOURCES
@@ -58,12 +59,13 @@ set(TX_SOURCES
     ${FUNC_DIR}/modulator.cpp
     ${FUNC_DIR}/functions.cpp
     ${FUNC_DIR}/threads.cpp
+    ${FUNC_DIR}/dsp.cpp
 )
 
-add_executable(main.elf ${APP_SOURCES})
-add_executable(tx_main.elf ${TX_SOURCES})
+add_executable(rx.elf ${APP_SOURCES})
+add_executable(tx.elf ${TX_SOURCES})
 
-target_link_libraries(main.elf PRIVATE
+target_link_libraries(rx.elf PRIVATE
     imgui
     implot
     ${SDL2_LIBRARIES}
@@ -73,9 +75,9 @@ target_link_libraries(main.elf PRIVATE
     fftw3
 )
 
-target_include_directories(main.elf PRIVATE ${INCLUDE_DIR} fftw3)
+target_include_directories(rx.elf PRIVATE ${INCLUDE_DIR} fftw3)
 
-target_link_libraries(tx_main.elf PRIVATE
+target_link_libraries(tx.elf PRIVATE
     imgui
     implot
     ${SDL2_LIBRARIES}
@@ -85,4 +87,4 @@ target_link_libraries(tx_main.elf PRIVATE
     fftw3
 )
 
-target_include_directories(tx_main.elf PRIVATE ${INCLUDE_DIR})
+target_include_directories(tx.elf PRIVATE ${INCLUDE_DIR})

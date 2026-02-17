@@ -1,165 +1,6 @@
 #include "header.h"
 #include "modulator.h"
 
-#include <GL/glew.h>
-#include <SDL2/SDL.h>
-
-#include <iostream>
-#include <chrono>
-#include <thread>
-#include <cmath>
-#include <vector>
-#include <cstdlib>
-#include <ctime>
-#include <atomic>
-
-#include <SoapySDR/Device.h>
-#include <SoapySDR/Types.h>
-
-// ImGui
-#include "imgui.h"
-#include "implot.h"
-#include "backends/imgui_impl_sdl2.h"
-#include "backends/imgui_impl_opengl3.h"
-
-#include <fftw3.h>
-
-atomic<bool> g_running{false};
-
-int bit_size = 1920*2;
-
-void Backend(SharedData& sd, SDRConfig &config) {
-    if (!config.sdr || !config.rxStream) {
-        cerr << "ERROR: SDR config!" << endl;
-        g_running = false;
-        return;
-    }
-
-    vector<complex<double>> symbols;
-    vector<complex<double>> symbols_UL;
-    vector<int16_t> tx_samples(2 * config.tx_mtu, 0);
-
-    sd.bits.resize(bit_size);
-    const int16_t barker13[13] = {1,1,1,1,1,0,0,1,1,0,1,0,1};
-    for (int i = 0; i < 26; ++i) {
-        sd.bits[i] = barker13[i % 13];
-    }
-    for (int i = 26; i < bit_size; ++i) {
-        sd.bits[i] = rand() % 2;
-    }
-
-    int cnt = 0;
-    for (size_t samples_sent = 0; g_running; ++samples_sent) {
-        if (sd.loopback_flag){
-            string mod_type;
-
-            if (sd.modulation_index == 0){
-                mod_type = "QAM::2";
-            } else if (sd.modulation_index == 2){
-                mod_type = "QAM::16";
-            } else {
-                mod_type = "QAM::4";
-            }
-
-            vector<complex<double>> symbols = modulator(sd.bits.data(), bit_size, mod_type);
-
-            vector<complex<double>> symbols_UL = UpSampler(symbols.data(), symbols.size(), sd.tx_l);
-
-            if (sd.tx_filter) {
-                filter(symbols_UL.data(), symbols_UL.size(), sd.tx_l);
-            }
-
-            
-            tx_samples.resize(2 * symbols_UL.size());
-            for (size_t i = 0; i < symbols_UL.size(); i++) {
-                tx_samples[2*i]   = static_cast<int16_t>(real(symbols_UL[i]) * 16000);
-                tx_samples[2*i+1] = static_cast<int16_t>(imag(symbols_UL[i]) * 16000);
-            }
-        }
-        
-        void *rx_buffs[] = {config.rx_buffer};
-        int flags = 0;
-        long long timeNs = 0;
-
-        int sr = SoapySDRDevice_readStream(config.sdr, config.rxStream, rx_buffs, config.rx_mtu, &flags, &timeNs, TIMEOUT);
-
-        long long tx_time = timeNs + TX_DELAY;
-        flags = SOAPY_SDR_HAS_TIME;
-
-        if (sd.loopback_flag && !tx_samples.empty()) {
-            size_t total = tx_samples.size() / 2;
-            if (samples_sent >= total) {
-                samples_sent = 0;
-            }
-            size_t to_send = min(static_cast<size_t>(config.tx_mtu), total - samples_sent);
-            const void* tx_buffs[] = { tx_samples.data() + samples_sent * 2 };
-            int st = SoapySDRDevice_writeStream(config.sdr, config.txStream, tx_buffs, to_send, &flags, tx_time, TIMEOUT);
-            samples_sent += to_send;
-        }
-
-        int16_t* data_ptr = static_cast<int16_t*>(config.rx_buffer);
-
-        {
-            lock_guard<mutex> lock(sd.mtx);
-
-            for (int i = 0; i < sr; ++i) {
-                double I = static_cast<double>(data_ptr[2*i]);
-                double Q = static_cast<double>(data_ptr[2*i + 1]);
-
-                complex<double> x(I, Q);
-
-                if (sd.filter_enabled){
-                    x = mf_filter(sd, x);
-                }
-                if (sd.costas_loop_enabled){
-                    x = costas_loop(sd, x);
-                }
-
-                sd.raw_buffer.push_back(x);
-            }
-
-            if (sd.raw_buffer.size() > SharedData::MAX_SAMPLES) {
-                sd.raw_buffer.erase(sd.raw_buffer.begin(), sd.raw_buffer.end() - SharedData::MAX_SAMPLES);
-            }
-            if (sd.sym_sync_enabled) {
-                sym_sync(sd, sd.raw_buffer);
-                sd.symbols.clear();
-                for (size_t i = sd.ss_offset; i < sd.raw_buffer.size(); i += SharedData::Nsp) {
-                    sd.symbols.push_back(sd.raw_buffer[i]);
-                }
-                if (sd.symbols.size() > SharedData::MAX_SYMBOLS) {
-                    sd.symbols.erase(sd.symbols.begin(), sd.symbols.end() - SharedData::MAX_SYMBOLS);
-                }
-            } else {
-                sd.symbols = sd.raw_buffer;
-            }
-
-            if(sd.fft_flag){
-                size_t n = min(sd.raw_buffer.size(), SharedData::FFT_SIZE);
-                for (size_t i = 0; i < n; i++) {
-                    sd.fft_in[i][0] = sd.raw_buffer[sd.raw_buffer.size() - n + i].real(); // I
-                    sd.fft_in[i][1] = sd.raw_buffer[sd.raw_buffer.size() - n + i].imag(); // Q
-                }
-
-                for (size_t i = n; i < SharedData::FFT_SIZE; i++) {
-                    sd.fft_in[i][0] = 0.0;
-                    sd.fft_in[i][1] = 0.0;
-                }
-
-                fftw_execute(sd.fft_plan);
-
-                for (size_t i = 0; i < SharedData::FFT_SIZE; i++) {
-                    double re = sd.fft_out[i][0];
-                    double im = sd.fft_out[i][1];
-                    sd.fft_magnitude[i] = log10(re * re + im * im + 1e-10); // лог-масштаб
-                }
-
-                sd.fft_ready = true;
-            }
-        }
-    }
-}
-
 int main() {
     struct SDRConfig config = {};
 
@@ -168,23 +9,23 @@ int main() {
 
     SharedData sd;
 
-    sd.mf_delay.resize(sd.mf_L - 1, 0.0);
+    sd.FormFilter.mf_delay.resize(sd.FormFilter.rx_l - 1, 0.0);
 
     thread Back;
 
-    sd.fft_in = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * SharedData::FFT_SIZE);
-    sd.fft_out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * SharedData::FFT_SIZE);
+    sd.fft.fft_in = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * sd.fft.FFT_SIZE);
+    sd.fft.fft_out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * sd.fft.FFT_SIZE);
 
-    sd.fft_plan = fftw_plan_dft_1d(
-        SharedData::FFT_SIZE,
-        sd.fft_in,
-        sd.fft_out,
+    sd.fft.fft_plan = fftw_plan_dft_1d(
+        sd.fft.FFT_SIZE,
+        sd.fft.fft_in,
+        sd.fft.fft_out,
         FFTW_FORWARD,
         FFTW_ESTIMATE
     );
 
-    sd.fft_buffer.resize(SharedData::FFT_SIZE);
-    sd.fft_magnitude.resize(SharedData::FFT_SIZE);
+    sd.fft.fft_buffer.resize(sd.fft.FFT_SIZE);
+    sd.fft.fft_magnitude.resize(sd.fft.FFT_SIZE);
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
         cerr << "SDL_Init Error: " << SDL_GetError() << endl;
@@ -217,7 +58,7 @@ int main() {
             ImGui_ImplSDL2_ProcessEvent(&event);
             if (event.type == SDL_QUIT) {
                 running = false;
-                g_running = false;
+                sd.flags.g_running = false;
             }
         }
 
@@ -238,18 +79,18 @@ int main() {
                         selected_device_index = static_cast<int>(i);
                         {
                             lock_guard<mutex> lock(sd.mtx);
-                            sd.selected_uri = uri ? string(uri) : "";
+                            sd.dev_f.selected_uri = uri ? string(uri) : "";
                         }
                     }
                 }
                 ImGui::EndMenu();
             }
 
-            if (ImGui::MenuItem("Start", nullptr, false, !g_running)) {
+            if (ImGui::MenuItem("Start", nullptr, false, !sd.flags.g_running)) {
                 string uri;
                 {
                     lock_guard<mutex> lock(sd.mtx);
-                    uri = sd.selected_uri;
+                    uri = sd.dev_f.selected_uri;
                 }
 
                 if (uri.empty() && !sdr_devices.empty()) {
@@ -268,11 +109,11 @@ int main() {
                     continue;
                 }
 
-                g_running = true;
-                Back = thread(Backend, ref(sd), ref(config));
+                sd.flags.g_running = true;
+                Back = thread(rx_back, ref(sd), ref(config));
             } else {
-                if (ImGui::MenuItem("Stop TX", nullptr, true, g_running)) {
-                g_running = false;
+                if (ImGui::MenuItem("Stop TX", nullptr, true, sd.flags.g_running)) {
+                sd.flags.g_running = false;
                 if (Back.joinable()) {
                     Back.join();
                 }
@@ -280,19 +121,19 @@ int main() {
             }
 
             if (ImGui::MenuItem("Exit", nullptr, false, true)) {
-                g_running = false;
+                sd.flags.g_running = false;
                 if (Back.joinable()) {
                     Back.join();
                 }
                 running = false;
             }
 
-            bool loopback = sd.loopback_flag;
+            bool loopback = sd.flags.loopback_flag;
             if (ImGui::Checkbox("Loopback", &loopback)) {
-                sd.loopback_flag = loopback;
+                sd.flags.loopback_flag = loopback;
             }
 
-            if (sd.loopback_flag) {
+            if (sd.flags.loopback_flag) {
                 ImGui::SameLine();
                 if (ImGui::Button("Config")) {
                     ImGui::OpenPopup("TX Settings");
@@ -304,23 +145,23 @@ int main() {
                 ImGui::Separator();
 
                 const char* modulation_types[] = { "QAM::2", "QAM::4", "QAM::16" };
-                static int modulation_idx = sd.modulation_index;
+                static int modulation_idx = sd.flags.modulation_index;
                 if (ImGui::Combo("Modulation", &modulation_idx, modulation_types, IM_ARRAYSIZE(modulation_types))) {
-                    sd.modulation_index = modulation_idx;
+                    sd.flags.modulation_index = modulation_idx;
                 }
 
-                int L = sd.tx_l;
+                int L = sd.FormFilter.tx_l;
                 if (ImGui::SliderInt("L", &L, 1, 100)) {
                     lock_guard<mutex> lock(sd.mtx);
-                    sd.tx_l = L;
+                    sd.FormFilter.tx_l = L;
                 }
 
-                bool tx_filter = sd.tx_filter;
+                bool tx_filter = sd.flags.tx_filter;
                 if (ImGui::Checkbox("TX Filter", &tx_filter)) {
-                    sd.tx_filter = tx_filter;
+                    sd.flags.tx_filter = tx_filter;
                 }
 
-                if (!sd.loopback_flag) {
+                if (!sd.flags.loopback_flag) {
                     ImGui::CloseCurrentPopup();
                 }
 
@@ -340,7 +181,7 @@ int main() {
 
         float rx_gain = sd.rx_gain;
         if (ImGui::SliderFloat("rx gain", &rx_gain, -90, 40)) {
-            if (g_running){
+            if (sd.flags.g_running){
                 lock_guard<mutex> lock(sd.mtx);
                 SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_RX, 0, rx_gain);
             }
@@ -349,51 +190,51 @@ int main() {
         int freq = sd.freq;
         if (ImGui::SliderInt("Carrier Freq", &freq, 200000000, 900000000)){
             sd.freq = freq;
-            if (g_running && config.sdr) {
+            if (sd.flags.g_running && config.sdr) {
                 SoapySDRDevice_setFrequency(config.sdr, SOAPY_SDR_RX, 0, static_cast<double>(freq), nullptr);
             }
         }
 
-        bool enabled = sd.filter_enabled;
+        bool enabled = sd.flags.filter_enabled;
         if (ImGui::Checkbox("Enable Square Filter", &enabled)) {
             {
                 lock_guard<mutex> lock(sd.mtx);
-                sd.filter_enabled = enabled;
+                sd.flags.filter_enabled = enabled;
                 
                 if (!enabled) {
-                    sd.mf_init = false;
-                    sd.mf_index = 0;
-                    sd.mf_sum = complex<double>(0.0);
-                    fill(sd.mf_delay.begin(), sd.mf_delay.end(), complex<double>(0.0));
+                    sd.flags.mf_init = false;
+                    sd.FormFilter.mf_index = 0;
+                    sd.FormFilter.mf_sum = complex<double>(0.0);
+                    fill(sd.FormFilter.mf_delay.begin(), sd.FormFilter.mf_delay.end(), complex<double>(0.0));
                 }
             }
         }
 
-        int L = sd.mf_L;
+        int L = sd.FormFilter.rx_l;
         if (ImGui::SliderInt("Filter Length", &L, 2, 50)) {
             lock_guard<mutex> lock(sd.mtx);
-            sd.mf_L = L;
-            sd.mf_delay.resize(L - 1, 0.0);
-            sd.mf_init = false;
-            sd.mf_index = 0;
-            sd.mf_sum = 0.0;
+            sd.FormFilter.rx_l = L;
+            sd.FormFilter.mf_delay.resize(L - 1, 0.0);
+            sd.flags.mf_init = false;
+            sd.FormFilter.mf_index = 0;
+            sd.FormFilter.mf_sum = 0.0;
         }
 
-        bool sync_enabled = sd.sym_sync_enabled;
+        bool sync_enabled = sd.gardner.sym_sync_enabled;
         if (ImGui::Checkbox("Symbol Sync", &sync_enabled)) {
-            sd.sym_sync_enabled = sync_enabled;
+            sd.gardner.sym_sync_enabled = sync_enabled;
         }
-        float BnTs = sd.BnTs;
+        float BnTs = sd.gardner.BnTs;
         if (ImGui::SliderFloat("Bnts", &BnTs, 0, 1)) {
             lock_guard<mutex> lock(sd.mtx);
-            sd.BnTs = BnTs;
+            sd.gardner.BnTs = BnTs;
         }
-        ImGui::Text("Offset: %d", sd.ss_offset);
+        ImGui::Text("Offset: %d", sd.gardner.ss_offset);
 
-        ImGui::Checkbox("Costas Loop", &sd.costas_loop_enabled);
-        ImGui::SliderFloat("Kp", &sd.cl_Kp, 0.0f, 0.3f);
-        ImGui::SliderFloat("Ki", &sd.cl_Ki, 0.0f, 0.3f);
-        ImGui::Checkbox("Spectrum", &sd.fft_flag);
+        ImGui::Checkbox("Costas Loop", &sd.flags.costas_loop_enabled);
+        ImGui::SliderFloat("Kp", &sd.costas.cl_Kp, 0.0f, 0.3f);
+        ImGui::SliderFloat("Ki", &sd.costas.cl_Ki, 0.0f, 0.3f);
+        ImGui::Checkbox("Spectrum", &sd.flags.fft_flag);
 
         ImGui::End();
         ImGui::SetNextWindowPos(ImVec2(
@@ -450,13 +291,13 @@ int main() {
             ImPlot::EndPlot();
         }
 
-        if (sd.fft_flag){
+        if (sd.flags.fft_flag){
             if (ImPlot::BeginPlot("FFT", plot_size1)) {
                 vector<double> local_mag;
                 {
                     lock_guard<mutex> lock(sd.mtx);
-                    if (sd.fft_ready) {
-                        local_mag = sd.fft_magnitude;
+                    if (sd.flags.fft_ready) {
+                        local_mag = sd.fft.fft_magnitude;
                     }
                 }
                 if (!local_mag.empty()) {
@@ -474,7 +315,6 @@ int main() {
 
         ImGui::End();
 
-        // Рендеринг
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui::Render();
@@ -490,8 +330,8 @@ int main() {
         
     }
 
-    if (g_running) {
-        g_running = false;
+    if (sd.flags.g_running) {
+        sd.flags.g_running = false;
         if (Back.joinable()) {
             Back.join();
         }
@@ -506,10 +346,10 @@ int main() {
         config.sdr = nullptr;
     }
 
-    if (sd.fft_plan) {
-        fftw_destroy_plan(sd.fft_plan);
-        fftw_free(sd.fft_in);
-        fftw_free(sd.fft_out);
+    if (sd.fft.fft_plan) {
+        fftw_destroy_plan(sd.fft.fft_plan);
+        fftw_free(sd.fft.fft_in);
+        fftw_free(sd.fft.fft_out);
     }
 
     ImGui_ImplOpenGL3_Shutdown();
