@@ -132,10 +132,10 @@ int main() {
         ImGui::Begin("Control Panel", nullptr, ImGuiWindowFlags_NoCollapse);
 
         float tx_gain = sd.tx_gain;
-        if (ImGui::SliderFloat("TX Gain", &tx_gain, -90, 40)) {
+        if (ImGui::SliderFloat("TX Gain", &tx_gain, 0, 89)) {
             if (sd.flags.g_running){
                 sd.tx_gain = tx_gain;
-                sd.flags.gain_changed = true;
+                sd.flags.tx_gain_changed = true;
             }
         }
 
@@ -143,7 +143,8 @@ int main() {
         if (ImGui::SliderFloat("Carrier Freq", &freq, 200e6, 900e6, "%e")) {
             sd.freq = freq;
             if (sd.flags.g_running && config.sdr) {
-                SoapySDRDevice_setFrequency(config.sdr, SOAPY_SDR_TX, 0, freq, nullptr);
+                sd.freq = freq;
+                sd.flags.tx_freq_changed = true;
             }
         }
 

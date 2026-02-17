@@ -31,10 +31,22 @@ void rx_back(SharedData& sd, SDRConfig &config) {
 
     int cnt = 0;
     for (size_t samples_sent = 0; sd.flags.g_running; ++samples_sent) {
-        if (sd.flags.gain_changed)
+        if (sd.flags.rx_gain_changed)
+        {
+            SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_RX, 0, sd.rx_gain);
+            sd.flags.rx_gain_changed = false;
+        }
+
+        if (sd.flags.tx_gain_changed)
         {
             SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_TX, 0, sd.tx_gain);
-            sd.flags.gain_changed = false;
+            sd.flags.tx_gain_changed = false;
+        }
+
+        if (sd.flags.rx_freq_changed)
+        {
+            SoapySDRDevice_setFrequency(config.sdr, SOAPY_SDR_RX, 0, sd.freq, nullptr);
+            sd.flags.rx_freq_changed = false;
         }
 
         if (sd.flags.loopback_flag){
@@ -112,7 +124,6 @@ void rx_back(SharedData& sd, SDRConfig &config) {
 
                 complex<double> x(I, Q);
 
-                if (sd.flags.filter_enabled) x = mf_filter(sd, x);
                 if (sd.flags.costas_loop_enabled) x = costas_loop(sd, x);
 
                 local_raw_buffer.push_back(x);
@@ -121,6 +132,8 @@ void rx_back(SharedData& sd, SDRConfig &config) {
                 sd.scope_head = (sd.scope_head + 1) % sd.SCOPE_SIZE;
                 if (sd.scope_head == 0) sd.scope_filled = true;
             }
+
+            if (sd.flags.filter_enabled) filter(local_raw_buffer.data(), local_raw_buffer.size(), sd.FormFilter.rx_l);
 
             if (sd.gardner.sym_sync_enabled) {
                 sym_sync(sd, local_raw_buffer);
@@ -168,10 +181,16 @@ void rx_back(SharedData& sd, SDRConfig &config) {
 
 void tx_back(SharedData& sd, SDRConfig &config) {
     while (sd.flags.g_running) {
-        if (sd.flags.gain_changed)
+        if (sd.flags.tx_gain_changed)
         {
             SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_TX, 0, sd.tx_gain);
-            sd.flags.gain_changed = false;
+            sd.flags.tx_gain_changed = false;
+        }
+
+        if (sd.flags.tx_freq_changed)
+        {
+            SoapySDRDevice_setFrequency(config.sdr, SOAPY_SDR_TX, 0, sd.freq, nullptr);
+            sd.flags.tx_freq_changed = false;
         }
         
         string mod_type;

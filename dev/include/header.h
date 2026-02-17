@@ -75,7 +75,10 @@ struct Flags{
     bool fft_ready = false;
     bool ofdm_enabled = false;
     bool used_gardner = false;
-    bool gain_changed = false;
+    bool rx_gain_changed = false;
+    bool tx_gain_changed = false;
+    bool rx_freq_changed = false;
+    bool tx_freq_changed = false;
 
     int modulation_index;
 };
@@ -146,10 +149,10 @@ struct SharedData {
     vector<complex<double>> scope_buffer;
     size_t scope_head = 0;
     bool scope_filled = false;
-    static constexpr size_t SCOPE_SIZE = 1920;
+    static constexpr size_t SCOPE_SIZE = 1920*2;
     
-    static constexpr size_t MAX_SAMPLES = 1920;
-    static constexpr size_t MAX_SYMBOLS = 192;
+    static constexpr size_t MAX_SAMPLES = 1920*2;
+    static constexpr size_t MAX_SYMBOLS = 192*2;
 
     double tx_gain = -10;
     double rx_gain = 20;

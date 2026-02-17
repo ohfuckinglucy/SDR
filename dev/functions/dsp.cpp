@@ -29,33 +29,8 @@ void filter(complex<double>* symbols_ups, int len_symbols_ups, int L) {
     }
 }
 
-complex<double> mf_filter(SharedData& sd, complex<double> x) {
-    if (sd.FormFilter.rx_l <= 1) return x;
-
-    if (!sd.flags.mf_init) {
-        sd.FormFilter.mf_sum += x;
-        if (sd.FormFilter.mf_index < sd.FormFilter.mf_delay.size()) {
-            sd.FormFilter.mf_delay[sd.FormFilter.mf_index] = x;
-        }
-        sd.FormFilter.mf_index++;
-        if (sd.FormFilter.mf_index >= sd.FormFilter.rx_l) {
-            sd.flags.mf_init = true;
-        }
-        return sd.FormFilter.mf_sum / static_cast<double>(sd.FormFilter.mf_index);
-    } else {
-        complex<double> oldest = sd.FormFilter.mf_delay[sd.FormFilter.mf_index % sd.FormFilter.mf_delay.size()];
-        sd.FormFilter.mf_sum = sd.FormFilter.mf_sum - oldest + x;
-        sd.FormFilter.mf_delay[sd.FormFilter.mf_index % sd.FormFilter.mf_delay.size()] = x;
-        sd.FormFilter.mf_index++;
-        return sd.FormFilter.mf_sum;
-    }
-}
-
 void sym_sync(SharedData& sd, const std::vector<std::complex<double>>& buf)
 {
-    // if (sd.flags.used_gardner)
-    //     return;
-
     int L = sd.FormFilter.rx_l;
 
     if (buf.size() < 3 * L)

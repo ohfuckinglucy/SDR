@@ -144,6 +144,14 @@ int main() {
                 ImGui::Text("TX Configuration");
                 ImGui::Separator();
 
+                float tx_gain = sd.tx_gain;
+                if (ImGui::SliderFloat("rx gain", &tx_gain, -40, 40)) {
+                    if (sd.flags.g_running){
+                        sd.tx_gain = tx_gain;
+                        sd.flags.tx_gain_changed = true;
+                    }
+                }
+
                 const char* modulation_types[] = { "QAM::2", "QAM::4", "QAM::16" };
                 static int modulation_idx = sd.flags.modulation_index;
                 if (ImGui::Combo("Modulation", &modulation_idx, modulation_types, IM_ARRAYSIZE(modulation_types))) {
@@ -184,19 +192,22 @@ int main() {
             ImGuiWindowFlags_NoResize |
             ImGuiWindowFlags_NoCollapse);
 
+        ImGui::Text("FPS: %.1f (%.3f ms)", io.Framerate, 1000.0f / io.Framerate);
+
         float rx_gain = sd.rx_gain;
-        if (ImGui::SliderFloat("rx gain", &rx_gain, -90, 40)) {
+        if (ImGui::SliderFloat("rx gain", &rx_gain, -40, 40)) {
             if (sd.flags.g_running){
-                lock_guard<mutex> lock(sd.mtx);
-                SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_RX, 0, rx_gain);
+                sd.rx_gain = rx_gain;
+                sd.flags.rx_gain_changed = true;
             }
         }
 
-        int freq = sd.freq;
-        if (ImGui::SliderInt("Carrier Freq", &freq, 200000000, 900000000)){
+        float freq = sd.freq;
+        if (ImGui::SliderFloat("Carrier Freq", &freq, 200e6, 900e6, "%e")) {
             sd.freq = freq;
-            if (sd.flags.g_running && config.sdr) {
-                SoapySDRDevice_setFrequency(config.sdr, SOAPY_SDR_RX, 0, static_cast<double>(freq), nullptr);
+            if (sd.flags.g_running) {
+                sd.freq = freq;
+                sd.flags.rx_freq_changed = true;
             }
         }
 
