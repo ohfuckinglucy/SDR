@@ -48,7 +48,7 @@ struct SDRConfig {
 
 struct TED_gardner{
     bool sym_sync_enabled = false;
-    float BnTs = 0.001;
+    float BnTs = 0.01;
     int ss_offset = 0;
     double ss_phase = 0.0;
     double ss_p1 = 0.0;
@@ -56,6 +56,8 @@ struct TED_gardner{
     size_t ss_last_index = 0;
     double zeta = sqrt(2.0)/2.0;
     static constexpr int Nsp = 10;
+
+    vector<int> TED_offsets;
 };
 
 struct Flags{
@@ -137,8 +139,8 @@ struct SharedData {
     vector<int16_t> last_tx_samples;
     vector<complex<double>> raw_buffer;
     vector<complex<double>> symbols;
-    static constexpr size_t MAX_SAMPLES = 30000;
-    static constexpr size_t MAX_SYMBOLS = 15000;
+    static constexpr size_t MAX_SAMPLES = 1920;
+    static constexpr size_t MAX_SYMBOLS = 192;
     
     double tx_gain = -10;
     double rx_gain = 20;
@@ -152,11 +154,13 @@ void Show_Array(const char* title, T* array, int len);
 SDRConfig SDRinit(char *usb, struct SharedData &sd);
 vector<SoapySDRKwargs> find_pluto_devices();
 
-vector<complex<double>> UpSampler(complex<double>* symbols, int len_s, int L);
+vector<complex<double>> UpSampler(const vector<complex<double>>& signal, int L);
 void filter(complex<double>* symbols_ups, int len_symbols_ups, int L);
 complex<double> mf_filter(SharedData& sd, complex<double> x);
 void sym_sync(SharedData& sd, const vector<complex<double>>& buf);
 complex<double> costas_loop(SharedData& sd, complex<double> r);
+
+int bits_per_symbol(string type);
 
 vector<complex<double>> ofdm_modulator(const vector<complex<double>>& symbols, struct SharedData& sd);
 

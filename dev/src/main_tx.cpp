@@ -139,8 +139,8 @@ int main() {
             }
         }
 
-        int freq = sd.freq;
-        if (ImGui::SliderInt("Carrier Freq", &freq, 200000000, 900000000)) {
+        float freq = sd.freq;
+        if (ImGui::SliderFloat("Carrier Freq", &freq, 200e6, 900e6, "%e")) {
             sd.freq = freq;
             if (sd.flags.g_running && config.sdr) {
                 SoapySDRDevice_setFrequency(config.sdr, SOAPY_SDR_TX, 0, freq, nullptr);

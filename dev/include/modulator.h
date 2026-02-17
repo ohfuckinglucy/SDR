@@ -9,4 +9,4 @@
 
 using namespace std;
 
-vector<complex<double>> modulator(int16_t* bits, int len_bits, string type);
+vector<complex<double>> modulator(vector<int16_t> bits, int len_bits, string type);

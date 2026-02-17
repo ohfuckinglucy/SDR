@@ -1,11 +1,11 @@
 #include "header.h"
 
-vector<complex<double>> UpSampler(complex<double> *symbols, int len_s, int L){
-    vector<complex<double>> symbols_ups(len_s * L);
-    for (size_t i = 0; i < len_s*L; i++){
+vector<complex<double>> UpSampler(const vector<complex<double>>& symbols, int L){
+    vector<complex<double>> symbols_ups(symbols.size() * L);
+    for (size_t i = 0; i < symbols.size()*L; i++){
         symbols_ups[i] = i0;
     }
-    for (size_t i = 0; i < len_s; i ++){
+    for (size_t i = 0; i < symbols.size(); i ++){
         symbols_ups[i*L] = symbols[i];
     }
 
@@ -52,7 +52,7 @@ complex<double> mf_filter(SharedData& sd, complex<double> x) {
 }
 
 void sym_sync(SharedData& sd, const vector<complex<double>>& buf){
-    if (!sd.gardner.sym_sync_enabled || buf.size() < 3) return;
+    // if (buf.size() < 3) return;
 
     double teta = (sd.gardner.BnTs / sd.FormFilter.rx_l) / (sd.gardner.zeta + 1.0/(4.0*sd.gardner.zeta));
     double Kp = 4.0;
@@ -60,11 +60,11 @@ void sym_sync(SharedData& sd, const vector<complex<double>>& buf){
     double K2 = (-4 * teta * teta) / ((1 + 2*sd.gardner.zeta*teta + teta*teta) * Kp);
     
     size_t start = (sd.gardner.ss_last_index == 0) ? 1 : sd.gardner.ss_last_index;
-    if (start >= buf.size()) return;
+    // if (start >= buf.size()) return;
     
-    for (size_t i = start; i < buf.size() - 1; ++i) {
-        double e_real = buf[i].real() * (buf[i+1].real() - buf[i-1].real());
-        double e_imag = buf[i].imag() * (buf[i+1].imag() - buf[i-1].imag());
+    for (size_t i = start; i < buf.size() - 11; ++i) {
+        double e_real = buf[i].real() * (buf[i+10].real() - buf[i-10].real());
+        double e_imag = buf[i].imag() * (buf[i+10].imag() - buf[i-10].imag());
         double error = e_real + e_imag;
 
         sd.gardner.ss_p1 += error * K2;
@@ -75,6 +75,14 @@ void sym_sync(SharedData& sd, const vector<complex<double>>& buf){
     sd.gardner.ss_phase = fmod(sd.gardner.ss_phase + sd.gardner.ss_p2, sd.FormFilter.rx_l);
     if (sd.gardner.ss_phase < 0) sd.gardner.ss_phase += sd.FormFilter.rx_l;
     sd.gardner.ss_offset = static_cast<int>(sd.gardner.ss_phase);
+
+    if (sd.gardner.TED_offsets.size() > 1920){
+        sd.gardner.TED_offsets.clear();
+    }
+
+    sd.gardner.TED_offsets.push_back(sd.gardner.ss_offset);
+
+    cout << sd.gardner.ss_offset << endl;
 }
 
 complex<double> costas_loop(SharedData& sd, complex<double> r){

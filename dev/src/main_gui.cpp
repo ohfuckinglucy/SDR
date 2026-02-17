@@ -156,6 +156,11 @@ int main() {
                     sd.FormFilter.tx_l = L;
                 }
 
+                bool upsampling_enabled = sd.flags.upsampling_enabled;
+                if (ImGui::Checkbox("UpSampling", &upsampling_enabled)) {
+                    sd.flags.upsampling_enabled = upsampling_enabled;
+                }
+
                 bool tx_filter = sd.flags.tx_filter;
                 if (ImGui::Checkbox("TX Filter", &tx_filter)) {
                     sd.flags.tx_filter = tx_filter;
@@ -287,6 +292,13 @@ int main() {
             if (!I.empty()) {
                 ImPlot::PlotLine("I", I.data(), I.size());
                 ImPlot::PlotLine("Q", Q.data(), Q.size());
+            }
+            ImPlot::EndPlot();
+        }
+
+        if (ImPlot::BeginPlot("Offset", plot_size1)){
+            if(!sd.gardner.TED_offsets.empty()){
+                ImPlot::PlotLine("Offset", sd.gardner.TED_offsets.data(), sd.gardner.TED_offsets.size());
             }
             ImPlot::EndPlot();
         }

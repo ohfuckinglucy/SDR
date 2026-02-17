@@ -7,7 +7,7 @@ const complex<double> i2(-1, 1);
 const complex<double> i3(-1, -1);
 const complex<double> i4(1, -1);
 
-vector<complex<double>> modulator(int16_t* bits, int len_bits, string type){
+vector<complex<double>> modulator(vector<int16_t> bits, int len_bits, string type){
     double I, Q;
 
     if (type == "QAM::2"){
@@ -48,6 +48,16 @@ vector<complex<double>> modulator(int16_t* bits, int len_bits, string type){
     } else {
         perror("unluck");
         exit(1);
+    }
+}
+
+int bits_per_symbol(string type){
+    if (type == "QAM::2"){
+        return 1;
+    } else if( type == "QAM::4"){
+        return 2;
+    } else {
+        return 4;
     }
 }
 
