@@ -48,7 +48,8 @@ struct SDRConfig {
 
 struct TED_gardner{
     bool sym_sync_enabled = false;
-    float BnTs = 0.01;
+    float BnTs = 0.0000001;
+    float Kp = 4.0;
     int ss_offset = 0;
     double ss_phase = 0.0;
     double ss_p1 = 0.0;
@@ -73,6 +74,8 @@ struct Flags{
     bool mf_init = false;
     bool fft_ready = false;
     bool ofdm_enabled = false;
+    bool used_gardner = false;
+    bool gain_changed = false;
 
     int modulation_index;
 };
@@ -139,9 +142,15 @@ struct SharedData {
     vector<int16_t> last_tx_samples;
     vector<complex<double>> raw_buffer;
     vector<complex<double>> symbols;
+    
+    vector<complex<double>> scope_buffer;
+    size_t scope_head = 0;
+    bool scope_filled = false;
+    static constexpr size_t SCOPE_SIZE = 1920;
+    
     static constexpr size_t MAX_SAMPLES = 1920;
     static constexpr size_t MAX_SYMBOLS = 192;
-    
+
     double tx_gain = -10;
     double rx_gain = 20;
 
@@ -175,7 +184,7 @@ extern const complex<double> i4;
 
 extern const map<string, complex<double>> qpsk_map;
 
-constexpr size_t N_BUFFERS = 100000;
+constexpr size_t N_BUFFERS = 1;
 constexpr long long TIMEOUT = 400000;
 constexpr long long TX_DELAY = 4000000;
 

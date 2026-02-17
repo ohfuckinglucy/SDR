@@ -230,10 +230,27 @@ int main() {
             sd.gardner.sym_sync_enabled = sync_enabled;
         }
         float BnTs = sd.gardner.BnTs;
-        if (ImGui::SliderFloat("Bnts", &BnTs, 0, 1)) {
-            lock_guard<mutex> lock(sd.mtx);
+        float KpG = sd.gardner.Kp;
+
+        if (ImGui::SliderFloat("BnTs", &BnTs, 0.0f, 0.1f))
+        {
+            std::lock_guard<std::mutex> lock(sd.mtx);
             sd.gardner.BnTs = BnTs;
+
+            sd.gardner.ss_p1 = 0.0;
+            sd.gardner.ss_p2 = 0.0;
         }
+
+        if (ImGui::SliderFloat("Kp Gar", &KpG, 0.0f, 10.0f))
+        {
+            std::lock_guard<std::mutex> lock(sd.mtx);
+            sd.gardner.Kp = KpG;
+
+            sd.gardner.ss_p1 = 0.0;
+            sd.gardner.ss_p2 = 0.0;
+        }
+
+
         ImGui::Text("Offset: %d", sd.gardner.ss_offset);
 
         ImGui::Checkbox("Costas Loop", &sd.flags.costas_loop_enabled);
@@ -264,41 +281,43 @@ int main() {
         ImVec2 plot_size1(-1,600);
         ImVec2 plot_size2(plot_width, 600);
         
-        if (ImPlot::BeginPlot("Scatter Plot", plot_size2)) {
+        if (ImPlot::BeginPlot("Constellation", plot_size2)) {
             vector<double> plot_real, plot_imag;
             {
                 lock_guard<mutex> lock(sd.mtx);
-                for (auto& s : sd.symbols) {
-                    plot_real.push_back(s.real());
-                    plot_imag.push_back(s.imag());
+                size_t limit = min(sd.symbols.size(), (size_t)500);
+                for (size_t i = 0; i < limit; ++i) {
+                    plot_real.push_back(sd.symbols[i].real());
+                    plot_imag.push_back(sd.symbols[i].imag());
                 }
             }
-            if (!plot_real.empty())
+            if (!plot_real.empty()) {
+                ImPlot::SetupAxesLimits(-2, 2, -2, 2);
                 ImPlot::PlotScatter("IQ", plot_real.data(), plot_imag.data(), plot_real.size());
+            }
             ImPlot::EndPlot();
         }
 
         ImGui::SameLine();
 
-        if (ImPlot::BeginPlot("Modulated Signal", plot_size2)) {
-            vector<double> I, Q;
+        if (ImPlot::BeginPlot("RX Scope", plot_size2)) {
+            vector<double> scope_I, scope_Q;
             {
                 lock_guard<mutex> lock(sd.mtx);
-                for (auto& s : sd.raw_buffer) {
-                    I.push_back(s.real());
-                    Q.push_back(s.imag());
+
+                if (!sd.scope_buffer.empty()){
+                    size_t count = sd.scope_filled ? sd.SCOPE_SIZE : sd.scope_head;
+                    for (size_t i = 0; i < count; ++i) {
+                        size_t idx = (sd.scope_head + i) % sd.SCOPE_SIZE;
+                        scope_I.push_back(sd.scope_buffer[idx].real());
+                        scope_Q.push_back(sd.scope_buffer[idx].imag());
+                    }
                 }
             }
-            if (!I.empty()) {
-                ImPlot::PlotLine("I", I.data(), I.size());
-                ImPlot::PlotLine("Q", Q.data(), Q.size());
-            }
-            ImPlot::EndPlot();
-        }
-
-        if (ImPlot::BeginPlot("Offset", plot_size1)){
-            if(!sd.gardner.TED_offsets.empty()){
-                ImPlot::PlotLine("Offset", sd.gardner.TED_offsets.data(), sd.gardner.TED_offsets.size());
+            if (!scope_I.empty()) {
+                ImPlot::SetupAxesLimits(0, scope_I.size(), -20000, 20000);
+                ImPlot::PlotLine("I", scope_I.data(), scope_I.size());
+                ImPlot::PlotLine("Q", scope_Q.data(), scope_Q.size());
             }
             ImPlot::EndPlot();
         }

@@ -16,14 +16,27 @@ void rx_back(SharedData& sd, SDRConfig &config) {
         return;
     }
 
-    vector<complex<double>> symbols;
-    vector<complex<double>> symbols_UL;
-    vector<int16_t> tx_samples(2 * config.tx_mtu, 0);
+    {
+        sd.scope_buffer.resize(sd.SCOPE_SIZE);
+        sd.scope_head = 0;
+        sd.scope_filled = false;
+    }
 
-    // bits.resize(bit_size);
-    
+    vector<complex<double>> signal;
+    vector<complex<double>> final_signal;
+    vector<int16_t> tx_samples(2 * config.tx_mtu * N_BUFFERS, 0);
+    vector<complex<double>> local_raw_buffer;
+    vector<complex<double>> local_symbols;
+    vector<double> local_fft_mag(sd.fft.FFT_SIZE);
+
     int cnt = 0;
     for (size_t samples_sent = 0; sd.flags.g_running; ++samples_sent) {
+        if (sd.flags.gain_changed)
+        {
+            SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_TX, 0, sd.tx_gain);
+            sd.flags.gain_changed = false;
+        }
+
         if (sd.flags.loopback_flag){
             string mod_type;
             
@@ -36,28 +49,23 @@ void rx_back(SharedData& sd, SDRConfig &config) {
             }
             
             int bits_size = bits_per_symbol(mod_type);
-            size_t max_symbols = config.tx_mtu / sd.FormFilter.tx_l;
-
-            vector<int16_t> bits(max_symbols * bits_size);
+            size_t target_samples = N_BUFFERS * config.tx_mtu;
+            size_t max_symbols = target_samples / sd.FormFilter.tx_l;
+            
+            sd.bits.resize(max_symbols * bits_size);
             const int16_t barker13[13] = {1,1,1,1,1,0,0,1,1,0,1,0,1};
             for (int i = 0; i < 26; ++i) {
-                bits[i] = barker13[i % 13];
+                sd.bits[i] = barker13[i % 13];
             }
-            for (int i = 26; i < bits.size(); ++i) {
-                bits[i] = rand() % 2;
+            for (int i = 26; i < sd.bits.size(); ++i) {
+                sd.bits[i] = rand() % 2;
             }
 
-            vector<complex<double>> signal;
-
-            vector<complex<double>> symbols = modulator(bits, bits.size(), mod_type);
+            signal = modulator(sd.bits, sd.bits.size(), mod_type);
 
             if (sd.flags.ofdm_enabled){
-                signal = ofdm_modulator(symbols, ref(sd));
-            } else {
-                signal = move(symbols);
+                signal = ofdm_modulator(signal, ref(sd));
             }
-
-            vector<complex<double>> final_signal;
 
             if (sd.flags.upsampling_enabled){
                 final_signal = UpSampler(signal, sd.FormFilter.tx_l);
@@ -68,10 +76,10 @@ void rx_back(SharedData& sd, SDRConfig &config) {
                 final_signal = move(signal);
             }
             
-            tx_samples.resize(2 * config.tx_mtu);
-            for (size_t i = 0; i < config.tx_mtu; i++) {
-                tx_samples[2*i]   = static_cast<int16_t>(real(final_signal[i]) * 16000);
-                tx_samples[2*i+1] = static_cast<int16_t>(imag(final_signal[i]) * 16000);
+            size_t samples_to_gen = min(final_signal.size(), (size_t)(N_BUFFERS * config.tx_mtu));
+            for (size_t i = 0; i < samples_to_gen; i++) {
+                tx_samples[2 * i]   = static_cast<int16_t>(real(final_signal[i]) * 16000);
+                tx_samples[2 * i + 1] = static_cast<int16_t>(imag(final_signal[i]) * 16000);
             }
         }
         
@@ -81,19 +89,22 @@ void rx_back(SharedData& sd, SDRConfig &config) {
 
         int sr = SoapySDRDevice_readStream(config.sdr, config.rxStream, rx_buffs, config.rx_mtu, &flags, &timeNs, TIMEOUT);
 
-        long long tx_time = timeNs + TX_DELAY;
-        flags = SOAPY_SDR_HAS_TIME;
-
         if (sd.flags.loopback_flag && !tx_samples.empty()) {
-            const void* tx_buffs[] = {tx_samples.data()};
-            int st = SoapySDRDevice_writeStream(config.sdr, config.txStream, tx_buffs, config.tx_mtu, &flags, tx_time, TIMEOUT);
-        }
+            long long tx_time = timeNs + TX_DELAY;
+            flags = SOAPY_SDR_HAS_TIME;
 
+            size_t tx_idx = samples_sent % N_BUFFERS;
+            const void* tx_buffs[] = { tx_samples.data() + (tx_idx * config.tx_mtu * 2) };
+            SoapySDRDevice_writeStream(config.sdr, config.txStream, tx_buffs, config.tx_mtu, &flags, tx_time, TIMEOUT);
+        }
         
         int16_t* data_ptr = static_cast<int16_t*>(rx_buffs[0]);
         
-        {
-            sd.raw_buffer.clear();
+        local_raw_buffer.clear();
+        local_raw_buffer.reserve(sr);
+        local_symbols.clear();
+
+        if (sr > 0){
 
             for (int i = 0; i < sr; ++i) {
                 double I = static_cast<double>(data_ptr[2*i]);
@@ -101,45 +112,55 @@ void rx_back(SharedData& sd, SDRConfig &config) {
 
                 complex<double> x(I, Q);
 
-                if (sd.flags.filter_enabled){
-                    x = mf_filter(sd, x);
-                }
-                if (sd.flags.costas_loop_enabled){
-                    x = costas_loop(sd, x);
-                }
+                if (sd.flags.filter_enabled) x = mf_filter(sd, x);
+                if (sd.flags.costas_loop_enabled) x = costas_loop(sd, x);
 
-                sd.raw_buffer.push_back(x);
+                local_raw_buffer.push_back(x);
+
+                sd.scope_buffer[sd.scope_head] = x;
+                sd.scope_head = (sd.scope_head + 1) % sd.SCOPE_SIZE;
+                if (sd.scope_head == 0) sd.scope_filled = true;
             }
 
-            sd.symbols.clear();
             if (sd.gardner.sym_sync_enabled) {
-                sym_sync(sd, sd.raw_buffer);
-            }
-            for (size_t i = sd.gardner.ss_offset; i < sd.raw_buffer.size(); i += sd.FormFilter.rx_l) {
-                sd.symbols.push_back(sd.raw_buffer[i]);
-            }
-
-            if(sd.flags.fft_flag){
-                size_t n = min(sd.raw_buffer.size(), sd.fft.FFT_SIZE);
-                for (size_t i = 0; i < n; i++) {
-                    sd.fft.fft_in[i][0] = sd.raw_buffer[sd.raw_buffer.size() - n + i].real(); // I
-                    sd.fft.fft_in[i][1] = sd.raw_buffer[sd.raw_buffer.size() - n + i].imag(); // Q
+                sym_sync(sd, local_raw_buffer);
+                sd.flags.used_gardner = true;
+                for (size_t i = sd.gardner.ss_offset; i < local_raw_buffer.size(); i += sd.FormFilter.rx_l) {
+                    local_symbols.push_back(local_raw_buffer[i]);
                 }
+            } else {
+                local_symbols = (local_raw_buffer);
+                sd.flags.used_gardner = false;
+            }
 
+            if (sd.flags.fft_flag) {
+                size_t n = min(local_raw_buffer.size(), sd.fft.FFT_SIZE);
+                for (size_t i = 0; i < n; i++) {
+                    sd.fft.fft_in[i][0] = local_raw_buffer[local_raw_buffer.size() - n + i].real();
+                    sd.fft.fft_in[i][1] = local_raw_buffer[local_raw_buffer.size() - n + i].imag();
+                }
                 for (size_t i = n; i < sd.fft.FFT_SIZE; i++) {
                     sd.fft.fft_in[i][0] = 0.0;
                     sd.fft.fft_in[i][1] = 0.0;
                 }
-
+                
                 fftw_execute(sd.fft.fft_plan);
 
                 for (size_t i = 0; i < sd.fft.FFT_SIZE; i++) {
                     double re = sd.fft.fft_out[i][0];
                     double im = sd.fft.fft_out[i][1];
-                    sd.fft.fft_magnitude[i] = log10(re * re + im * im + 1e-10);
+                    local_fft_mag[i] = log10(re * re + im * im + 1e-10);
                 }
-
                 sd.flags.fft_ready = true;
+            }
+            {
+                std::lock_guard<std::mutex> lock(sd.mtx);
+                
+                sd.raw_buffer = local_raw_buffer;
+                sd.symbols = local_symbols;
+                if (sd.flags.fft_flag && sd.flags.fft_ready) {
+                    sd.fft.fft_magnitude = local_fft_mag;
+                }
             }
         }
     }
@@ -147,6 +168,12 @@ void rx_back(SharedData& sd, SDRConfig &config) {
 
 void tx_back(SharedData& sd, SDRConfig &config) {
     while (sd.flags.g_running) {
+        if (sd.flags.gain_changed)
+        {
+            SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_TX, 0, sd.tx_gain);
+            sd.flags.gain_changed = false;
+        }
+        
         string mod_type;
         
         if (sd.flags.modulation_index == 0){
@@ -197,7 +224,6 @@ void tx_back(SharedData& sd, SDRConfig &config) {
         }
 
         {
-            lock_guard<mutex> lock(sd.mtx);
             sd.last_tx_samples.clear();
             int N_show = min(100, static_cast<int>(tx_samples.size()));
             sd.last_tx_samples.assign(tx_samples.begin(), tx_samples.begin() + N_show);

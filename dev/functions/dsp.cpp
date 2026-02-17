@@ -51,39 +51,54 @@ complex<double> mf_filter(SharedData& sd, complex<double> x) {
     }
 }
 
-void sym_sync(SharedData& sd, const vector<complex<double>>& buf){
-    // if (buf.size() < 3) return;
+void sym_sync(SharedData& sd, const std::vector<std::complex<double>>& buf)
+{
+    // if (sd.flags.used_gardner)
+    //     return;
 
-    double teta = (sd.gardner.BnTs / sd.FormFilter.rx_l) / (sd.gardner.zeta + 1.0/(4.0*sd.gardner.zeta));
-    double Kp = 4.0;
-    double K1 = (-4 * sd.gardner.zeta * teta) / ((1 + 2*sd.gardner.zeta*teta + teta*teta) * Kp);
-    double K2 = (-4 * teta * teta) / ((1 + 2*sd.gardner.zeta*teta + teta*teta) * Kp);
-    
-    size_t start = (sd.gardner.ss_last_index == 0) ? 1 : sd.gardner.ss_last_index;
-    // if (start >= buf.size()) return;
-    
-    for (size_t i = start; i < buf.size() - 11; ++i) {
-        double e_real = buf[i].real() * (buf[i+10].real() - buf[i-10].real());
-        double e_imag = buf[i].imag() * (buf[i+10].imag() - buf[i-10].imag());
-        double error = e_real + e_imag;
+    int L = sd.FormFilter.rx_l;
+
+    if (buf.size() < 3 * L)
+        return;
+
+    double teta = (sd.gardner.BnTs / L) /
+                  (sd.gardner.zeta + 1.0/(4.0*sd.gardner.zeta));
+
+    double K1 = (-4 * sd.gardner.zeta * teta) /
+                ((1 + 2*sd.gardner.zeta*teta + teta*teta) * sd.gardner.Kp);
+
+    double K2 = (-4 * teta * teta) /
+                ((1 + 2*sd.gardner.zeta*teta + teta*teta) * sd.gardner.Kp);
+
+    for (int ns = 0; ns < buf.size()/L - 1; ++ns)
+    {
+        int n = sd.gardner.ss_offset;
+
+        int idx_e = n + L*ns;
+        int idx_m = n + L/2 + L*ns;
+        int idx_l = n + L + L*ns;
+
+        if (idx_l >= buf.size())
+            break;
+
+        auto early = buf[idx_e];
+        auto mid   = buf[idx_m];
+        auto late  = buf[idx_l];
+
+        double error =
+            mid.real() * (late.real() - early.real()) +
+            mid.imag() * (late.imag() - early.imag());
 
         sd.gardner.ss_p1 += error * K2;
         sd.gardner.ss_p2 += sd.gardner.ss_p1 + error * K1;
+
+        while (sd.gardner.ss_p2 >= 1.0) sd.gardner.ss_p2 -= 1.0;
+        while (sd.gardner.ss_p2 < 0.0)  sd.gardner.ss_p2 += 1.0;
+
+        sd.gardner.ss_offset = int(sd.gardner.ss_p2 * L);
     }
-
-    sd.gardner.ss_last_index = buf.size();
-    sd.gardner.ss_phase = fmod(sd.gardner.ss_phase + sd.gardner.ss_p2, sd.FormFilter.rx_l);
-    if (sd.gardner.ss_phase < 0) sd.gardner.ss_phase += sd.FormFilter.rx_l;
-    sd.gardner.ss_offset = static_cast<int>(sd.gardner.ss_phase);
-
-    if (sd.gardner.TED_offsets.size() > 1920){
-        sd.gardner.TED_offsets.clear();
-    }
-
-    sd.gardner.TED_offsets.push_back(sd.gardner.ss_offset);
-
-    cout << sd.gardner.ss_offset << endl;
 }
+
 
 complex<double> costas_loop(SharedData& sd, complex<double> r){
     auto arg = polar(1.0, -sd.costas.cl_theta_hat);
@@ -99,6 +114,13 @@ complex<double> costas_loop(SharedData& sd, complex<double> r){
     double error = sign_I * Q - sign_Q * I;
 
     sd.costas.cl_integrator += error;
+
+    const double integrator_limit = 10.0;
+    sd.costas.cl_integrator = max(
+        -integrator_limit,
+        min(integrator_limit, sd.costas.cl_integrator)
+    );
+
 
     sd.costas.cl_theta_hat += sd.costas.cl_Kp * error + sd.costas.cl_Ki * sd.costas.cl_integrator;
 

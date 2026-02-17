@@ -134,8 +134,8 @@ int main() {
         float tx_gain = sd.tx_gain;
         if (ImGui::SliderFloat("TX Gain", &tx_gain, -90, 40)) {
             if (sd.flags.g_running){
-                lock_guard<mutex> lock(sd.mtx);
-                SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_TX, 0, tx_gain);
+                sd.tx_gain = tx_gain;
+                sd.flags.gain_changed = true;
             }
         }
 
