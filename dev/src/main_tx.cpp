@@ -20,6 +20,7 @@ int main() {
         360, 720, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
     SDL_GLContext gl_context = SDL_GL_CreateContext(window);
     SDL_GL_MakeCurrent(window, gl_context);
+    SDL_GL_SetSwapInterval(0);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();

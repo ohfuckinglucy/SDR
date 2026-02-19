@@ -1,4 +1,5 @@
 #include "header.h"
+#include <algorithm>
 
 vector<complex<double>> UpSampler(const vector<complex<double>>& symbols, int L){
     vector<complex<double>> symbols_ups(symbols.size() * L);
@@ -29,7 +30,7 @@ void filter(complex<double>* symbols_ups, int len_symbols_ups, int L) {
     }
 }
 
-void sym_sync(SharedData& sd, const std::vector<std::complex<double>>& buf)
+void sym_sync(SharedData& sd, const vector<complex<double>>& buf)
 {
     int L = sd.FormFilter.rx_l;
 
@@ -102,4 +103,60 @@ complex<double> costas_loop(SharedData& sd, complex<double> r){
     sd.costas.cl_theta_hat = fmod(sd.costas.cl_theta_hat + M_PI, 2*M_PI) - M_PI;
 
     return r_corrected;
+}
+
+inline double quantize(double val) {
+    double q = round(val);
+
+    if (fmod(q, 2.0) == 0.0) {
+        q = (q > 0) ? q - 1.0 : q + 1.0;
+    }
+
+    return clamp(q, -3.0, 3.0);
+}
+
+complex<double> costas_loop_16qam(SharedData& sd, complex<double> r) {
+    complex<double> rotator = polar(1.0, -sd.costas.cl_theta_hat);
+    complex<double> r_rotated = r * rotator;
+
+    double I = r_rotated.real();
+    double Q = r_rotated.imag();
+    
+    double current_peak = max(abs(I), abs(Q));
+    
+    if (sd.costas.signal_level == 0.0) {
+        sd.costas.signal_level = current_peak;
+    } else {
+        double alpha = 0.01; 
+        sd.costas.signal_level = (1.0 - alpha) * sd.costas.signal_level + alpha * current_peak;
+    }
+
+    if (sd.costas.signal_level < 1e-6) {
+        return r_rotated;
+    }
+
+    double scale = 3.0 / sd.costas.signal_level;
+    
+    double I_norm = I * scale;
+    double Q_norm = Q * scale;
+
+    double I_decision = quantize(I_norm);
+    double Q_decision = quantize(Q_norm);
+
+    double error = (I_norm * Q_decision) - (Q_norm * I_decision);
+
+    const double max_err = 1.0; 
+    error = clamp(error, -max_err, max_err);
+
+    sd.costas.cl_integrator += error;
+    
+    double Kp = (double)sd.costas.cl_Kp;
+    double Ki = (double)sd.costas.cl_Ki;
+    
+    sd.costas.cl_theta_hat += Kp * error + Ki * sd.costas.cl_integrator;
+
+    while (sd.costas.cl_theta_hat > M_PI) sd.costas.cl_theta_hat -= 2.0 * M_PI;
+    while (sd.costas.cl_theta_hat < -M_PI) sd.costas.cl_theta_hat += 2.0 * M_PI;
+
+    return r_rotated; 
 }

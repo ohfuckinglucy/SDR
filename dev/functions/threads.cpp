@@ -124,7 +124,7 @@ void rx_back(SharedData& sd, SDRConfig &config) {
 
                 complex<double> x(I, Q);
 
-                if (sd.flags.costas_loop_enabled) x = costas_loop(sd, x);
+                if (sd.flags.costas_loop_enabled) x = costas_loop_16qam(sd, x);
 
                 local_raw_buffer.push_back(x);
 

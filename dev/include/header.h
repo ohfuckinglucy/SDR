@@ -97,6 +97,9 @@ struct CostasLoop{
     float cl_Kp = 0.02;
     float cl_Ki = 0.0001;
     double cl_integrator = 0;
+
+    double signal_level = 0.0;
+    
 };
 
 struct Fft_conf{
@@ -171,6 +174,7 @@ void filter(complex<double>* symbols_ups, int len_symbols_ups, int L);
 complex<double> mf_filter(SharedData& sd, complex<double> x);
 void sym_sync(SharedData& sd, const vector<complex<double>>& buf);
 complex<double> costas_loop(SharedData& sd, complex<double> r);
+std::complex<double> costas_loop_16qam(SharedData& sd, std::complex<double> r);
 
 int bits_per_symbol(string type);
 
