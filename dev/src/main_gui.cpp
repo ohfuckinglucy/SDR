@@ -27,28 +27,40 @@ int main() {
     sd.fft.fft_buffer.resize(sd.fft.FFT_SIZE);
     sd.fft.fft_magnitude.resize(sd.fft.FFT_SIZE);
 
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
-        cerr << "SDL_Init Error: " << SDL_GetError() << endl;
-        return -1;
-    }
+    bool Costas_enabled = false;
+
+    SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER);
 
     SDL_Window* window = SDL_CreateWindow(
-        "PlutoSDR Modulatora", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        1280, 720, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+        "Backend start", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        1920, 1080, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
     SDL_GLContext gl_context = SDL_GL_CreateContext(window);
-    SDL_GL_MakeCurrent(window, gl_context);
     SDL_GL_SetSwapInterval(0);
 
-    IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImPlot::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = 10.f;
+    style.FrameRounding = 8.f;
+    style.ChildRounding = 8.f;
+    style.ScrollbarRounding = 10.f;
+    style.TabRounding = 8.f;
+    style.WindowBorderSize = 0.0f;
+    style.FrameBorderSize = 0.0f;
+    style.PopupBorderSize = 0.0f;
+    style.WindowPadding = ImVec2(10, 10);
+    style.FramePadding = ImVec2(4, 4);
+    style.ItemSpacing = ImVec2(8, 8);
+    style.ItemInnerSpacing = ImVec2(4, 4);
 
-    ImGui::LoadIniSettingsFromDisk(io.IniFilename);
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
     ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init("#version 330");
+
 
     ImVec2 plotsize(1600, 600);
 
@@ -68,6 +80,7 @@ int main() {
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
+        ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_None);
 
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("Device")) {
@@ -159,6 +172,8 @@ int main() {
                     sd.flags.modulation_index = modulation_idx;
                 }
 
+                ImGui::Checkbox("OFDM", &sd.flags.ofdm_enabled_tx);
+
                 int L = sd.FormFilter.tx_l;
                 if (ImGui::SliderInt("L", &L, 1, 100)) {
                     lock_guard<mutex> lock(sd.mtx);
@@ -185,12 +200,8 @@ int main() {
             ImGui::EndMainMenuBar();
         }
         ImGuiViewport* vp = ImGui::GetMainViewport();
-        ImGui::SetNextWindowPos(ImVec2(vp->Pos.x, vp->Pos.y + ImGui::GetFrameHeight()));
-        ImGui::SetNextWindowSize(ImVec2(260, vp->Size.y - ImGui::GetFrameHeight()));
 
         ImGui::Begin("Control Panel", nullptr,
-            ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoResize |
             ImGuiWindowFlags_NoCollapse);
 
         ImGui::Text("FPS: %.1f (%.3f ms)", io.Framerate, 1000.0f / io.Framerate);
@@ -264,27 +275,41 @@ int main() {
 
 
         ImGui::Text("Offset: %d", sd.gardner.ss_offset);
-
-        ImGui::Checkbox("Costas Loop", &sd.flags.costas_loop_enabled);
+        
+        if (ImGui::Checkbox("Costas Loop", &sd.flags.costas_loop_enabled)){
+            if (!sd.flags.costas_loop_enabled) {
+                Costas_enabled = false;
+            } else {
+                Costas_enabled = true;
+            }
+        }
+        if (Costas_enabled){
+            ImGui::SameLine();
+            ImGui::Checkbox("QAM16", &sd.flags.QAM16_costas_loop);
+        }
         ImGui::SliderFloat("Kp", &sd.costas.cl_Kp, 0.0f, 0.3f);
         ImGui::SliderFloat("Ki", &sd.costas.cl_Ki, 0.0f, 0.3f);
         ImGui::Checkbox("Spectrum", &sd.flags.fft_flag);
 
         ImGui::End();
-        ImGui::SetNextWindowPos(ImVec2(
-            vp->Pos.x + 260,
-            vp->Pos.y + ImGui::GetFrameHeight()
-        ));
-        ImGui::SetNextWindowSize(ImVec2(
-            vp->Size.x - 260,
-            vp->Size.y - ImGui::GetFrameHeight()
-        ));
+
+        ImGui::Begin("OFDM Control Panel", nullptr,
+            ImGuiWindowFlags_NoCollapse);
+
+        ImGui::Checkbox("Ofdm receiver", &sd.flags.ofdm_enabled);
+
+        if(sd.flags.ofdm_enabled){
+            ImGui::Checkbox("Time Estimation", &sd.flags.ofdm_time_est);
+            ImGui::SameLine();
+            ImGui::Text("Signal Begin: %d", sd.ofdm.sig_begin);
+            // ImGui::Checkbox("CFO Estimation", &sd.flags.cfo_est_enabled);
+            // ImGui::Checkbox("Data Estimation", &sd.flags.data_est_enabled);
+        }
+
+        ImGui::End();
 
         ImGui::Begin("Plots",
             nullptr,
-            ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoCollapse |
             ImGuiWindowFlags_NoTitleBar
         );
 
@@ -316,20 +341,18 @@ int main() {
             vector<double> scope_I, scope_Q;
             {
                 lock_guard<mutex> lock(sd.mtx);
-
-                if (!sd.scope_buffer.empty()){
-                    size_t count = sd.scope_filled ? sd.SCOPE_SIZE : sd.scope_head;
-                    for (size_t i = 0; i < count; ++i) {
-                        size_t idx = (sd.scope_head + i) % sd.SCOPE_SIZE;
-                        scope_I.push_back(sd.scope_buffer[idx].real());
-                        scope_Q.push_back(sd.scope_buffer[idx].imag());
-                    }
+                for (const auto& val : sd.scope_buffer) {
+                    scope_I.push_back(val.real());
+                    scope_Q.push_back(val.imag());
                 }
             }
+            
             if (!scope_I.empty()) {
                 ImPlot::SetupAxesLimits(0, scope_I.size(), -20000, 20000);
                 ImPlot::PlotLine("I", scope_I.data(), scope_I.size());
                 ImPlot::PlotLine("Q", scope_Q.data(), scope_Q.size());
+            } else {
+                ImPlot::SetupAxesLimits(0, 100, -20000, 20000);
             }
             ImPlot::EndPlot();
         }

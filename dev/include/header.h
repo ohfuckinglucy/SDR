@@ -66,6 +66,7 @@ struct Flags{
 
     bool upsampling_enabled = false;
     bool costas_loop_enabled = false;
+    bool QAM16_costas_loop = false;
     bool cl_init = false;
     bool filter_enabled = false;
     bool tx_filter = false;
@@ -74,11 +75,16 @@ struct Flags{
     bool mf_init = false;
     bool fft_ready = false;
     bool ofdm_enabled = false;
+    bool ofdm_enabled_tx = false;
     bool used_gardner = false;
     bool rx_gain_changed = false;
     bool tx_gain_changed = false;
     bool rx_freq_changed = false;
     bool tx_freq_changed = false;
+    bool ofdm_time_est = false;
+    bool channel_estimated = false;
+    bool cfo_est_enabled = false;
+    bool data_est_enabled = false;
 
     int modulation_index;
 };
@@ -122,14 +128,14 @@ struct device_finder{
 struct ofdm_conf{
     int8_t n_subcarriers = 64; // Кол-во поднесущих
     int8_t cp_len = 16; // Длина префикса
-    int8_t n_ofdm_symbols = 2; // Кол-во ofdm символов
-
-    double Tb = 1e-6; // Битовая длительность 
-    double Ts = n_subcarriers * Tb; // Длительность ofdm символа без префикса
-    double Tg = cp_len * Tb; // Длительность префикса
-    double T_sym = Ts + Tg; // Длительность ofdm символа
+    int sig_begin = 0;
 
     vector<int8_t>pilot_idx = {8, 16, 24, 40, 48, 56};
+};
+
+struct SyncResult {
+    int timing_offset;
+    double cfo_estimate = 0;
 };
 
 struct SharedData {
@@ -142,6 +148,7 @@ struct SharedData {
     struct Fft_conf fft;
     struct device_finder dev_f;
     struct ofdm_conf ofdm;
+    struct SyncResult ofdm_sync;
     
     vector<int16_t> bits;
     vector<int16_t> tx_samples;
@@ -153,6 +160,7 @@ struct SharedData {
     size_t scope_head = 0;
     bool scope_filled = false;
     static constexpr size_t SCOPE_SIZE = 1920*2;
+    size_t last_rx_count = 0;
     
     static constexpr size_t MAX_SAMPLES = 1920*2;
     static constexpr size_t MAX_SYMBOLS = 192*2;
@@ -179,6 +187,14 @@ std::complex<double> costas_loop_16qam(SharedData& sd, std::complex<double> r);
 int bits_per_symbol(string type);
 
 vector<complex<double>> ofdm_modulator(const vector<complex<double>>& symbols, struct SharedData& sd);
+vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, struct SharedData& sd);
+vector<complex<double>> generate_known_preamble(int N);
+vector<complex<double>> preamble_generate(struct SharedData& sd);
+int time_est(vector<complex<double>> signal, SharedData &sd);
+vector<complex<double>> cfo_est(vector<complex<double>> signal, SharedData &sd);
+vector<complex<double>> discard_cp(vector<complex<double>> signal, SharedData &sd);
+vector<complex<double>> ofdm_equalize(vector<complex<double>> signal, SharedData &sd);
+
 
 void rx_back(SharedData& sd, SDRConfig &config);
 void tx_back(SharedData& sd, SDRConfig &config);

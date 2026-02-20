@@ -6,27 +6,39 @@ thread tx_thread;
 int main() {
     SharedData sd;
 
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
-        cerr << "SDL_Init Error: " << SDL_GetError() << endl;
-        return -1;
-    }
-
     struct SDRConfig config = {};
     auto sdr_devices = find_pluto_devices();
     int selected_device_index = 0;
 
+    SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER);
+
     SDL_Window* window = SDL_CreateWindow(
-        "PlutoSDR Modulator", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        "Backend start", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         360, 720, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
     SDL_GLContext gl_context = SDL_GL_CreateContext(window);
-    SDL_GL_MakeCurrent(window, gl_context);
     SDL_GL_SetSwapInterval(0);
 
-    IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImPlot::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    ImGui::LoadIniSettingsFromDisk(io.IniFilename);
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = 10.f;
+    style.FrameRounding = 8.f;
+    style.ChildRounding = 8.f;
+    style.ScrollbarRounding = 10.f;
+    style.TabRounding = 8.f;
+    style.WindowBorderSize = 0.0f;
+    style.FrameBorderSize = 0.0f;
+    style.PopupBorderSize = 0.0f;
+    style.WindowPadding = ImVec2(10, 10);
+    style.FramePadding = ImVec2(4, 4);
+    style.ItemSpacing = ImVec2(8, 8);
+    style.ItemInnerSpacing = ImVec2(4, 4);
+
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+
     ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init("#version 330");
 
@@ -48,6 +60,7 @@ int main() {
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
+        ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_None);
 
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("Device")) {
@@ -67,8 +80,6 @@ int main() {
             ImGui::EndMainMenuBar();
         }
 
-        ImGui::SetNextWindowPos(ImVec2(10, 30));
-        ImGui::SetNextWindowSize(ImVec2(360, 200));
         ImGui::Begin("TX Control", nullptr, ImGuiWindowFlags_NoCollapse);
 
         ImGui::Combo("Modulation", &modulation_idx, modulation_types, IM_ARRAYSIZE(modulation_types));
@@ -128,8 +139,6 @@ int main() {
 
         ImGui::End();
 
-        ImGui::SetNextWindowPos(ImVec2(10, 240));
-        ImGui::SetNextWindowSize(ImVec2(350, 200));
         ImGui::Begin("Control Panel", nullptr, ImGuiWindowFlags_NoCollapse);
 
         float tx_gain = sd.tx_gain;
@@ -151,8 +160,6 @@ int main() {
 
         ImGui::End();
 
-        ImGui::SetNextWindowPos(ImVec2(10, 450));
-        ImGui::SetNextWindowSize(ImVec2(350, 250));
         ImGui::Begin("First bits", nullptr, ImGuiWindowFlags_NoCollapse);
 
         int N = min(50, static_cast<int>(sd.last_tx_samples.size()) / 2);

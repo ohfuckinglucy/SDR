@@ -61,74 +61,106 @@ int bits_per_symbol(string type){
     }
 }
 
-vector<complex<double>> ofdm_modulator(const vector<complex<double>>& symbols, struct SharedData& sd) {
+vector<complex<double>> generate_known_preamble(int N) {
+    vector<complex<double>> preamble(N, {0.0, 0.0});
+    
+    const complex<double> pilot_seq[] = {
+        {1.0, 1.0}, {-1.0, 1.0}, {1.0, -1.0}, {-1.0, -1.0},
+        {1.0, 1.0}, {1.0, -1.0}, {-1.0, 1.0}, {1.0, 1.0},
+        {-1.0, -1.0}, {1.0, -1.0}, {-1.0, 1.0}, {-1.0, -1.0},
+        {1.0, 1.0}, {-1.0, 1.0}, {1.0, -1.0}, {-1.0, -1.0},
+        {-1.0, 1.0}, {1.0, 1.0}, {-1.0, -1.0}, {1.0, -1.0},
+        {1.0, 1.0}, {-1.0, -1.0}, {1.0, -1.0}, {-1.0, 1.0},
+        {-1.0, -1.0}, {1.0, 1.0}, {-1.0, 1.0}, {1.0, -1.0},
+        {1.0, -1.0}, {-1.0, -1.0}, {1.0, 1.0}, {-1.0, 1.0}
+    };
+    
+    int seq_idx = 0;
+    for (int i = 2; i < N; i += 2) {
+        preamble[i] = pilot_seq[seq_idx++ % 32] / sqrt(2.0);
+    }
+    
+    return preamble;
+}
+
+vector<complex<double>> preamble_generate(struct SharedData& sd){
+    return ofdm_modulator(generate_known_preamble(sd.ofdm.n_subcarriers), sd);
+}
+
+vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, struct SharedData& sd){
     const auto& cfg = sd.ofdm;
+    const int N = cfg.n_subcarriers;
+    const int data_per_symbol = N - cfg.pilot_idx.size();
 
-    int N = cfg.n_subcarriers;
-    int cp_len = cfg.cp_len;
-    int n_symbols = cfg.n_ofdm_symbols;
-    const auto& pilot_idx = cfg.pilot_idx;
+    if (symbols.empty() || symbols.size() % data_per_symbol != 0) return {};
 
-    vector<int> data_idx;
-    for (int k = 0; k < N; ++k) {
-        if (find(pilot_idx.begin(), pilot_idx.end(), k) == pilot_idx.end()) {
-            data_idx.push_back(k);
-        }
-    }
+    vector<complex<double>> output_signal;
 
-    int n_data_per_symbol = data_idx.size();
-    int total_needed = n_symbols * n_data_per_symbol;
+    size_t num_symbols = symbols.size() / data_per_symbol;
+    size_t data_ptr = 0;
 
-    complex<double> pilot_val = {1.0 / sqrt(2.0), 1.0 / sqrt(2.0)}; 
+    for (size_t s = 0; s < num_symbols; ++s) {
+        vector<complex<double>> sym_block(N, {0.0, 0.0});
 
-    vector<complex<double>> ofdm_signal;
-    ofdm_signal.reserve(n_symbols * (N + cp_len));
-
-    int sym_ptr = 0;
-
-    fftw_complex* in = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    fftw_complex* out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    fftw_plan plan = fftw_plan_dft_1d(N, in, out, FFTW_BACKWARD, FFTW_ESTIMATE);
-
-    for (int s = 0; s < n_symbols; ++s) {
         for (int k = 0; k < N; ++k) {
-            in[k][0] = 0.0;
-            in[k][1] = 0.0;
+            bool is_pilot = (find(cfg.pilot_idx.begin(), cfg.pilot_idx.end(), k) != cfg.pilot_idx.end());
+
+            if (is_pilot) {
+                sym_block[k] = {1.0, 0.0}; 
+            } else {
+                if (data_ptr < symbols.size()) {
+                    sym_block[k] = symbols[data_ptr];
+                    data_ptr++;
+                }
+            }
         }
 
-        for (int k : pilot_idx) {
-            in[k][0] = pilot_val.real();
-            in[k][1] = pilot_val.imag();
-        }
-
-        for (int k : data_idx) {
-            const auto& sym = symbols[sym_ptr++];
-            in[k][0] = sym.real();
-            in[k][1] = sym.imag();
-        }
-
-        fftw_execute(plan);
-
-        vector<complex<double>> time_domain(N);
-        for (int n = 0; n < N; ++n) {
-            double scale = 1.0 / N;
-            time_domain[n] = complex<double>(out[n][0] * scale, out[n][1] * scale);
-        }
-
-        vector<complex<double>> with_cp;
-        with_cp.reserve(N + cp_len);
-
-        for (int i = N - cp_len; i < N; ++i) {
-            with_cp.push_back(time_domain[i]);
-        }
-        for (int i = 0; i < N; ++i) {
-            with_cp.push_back(time_domain[i]);
-        }
-
-        ofdm_signal.insert(ofdm_signal.end(), with_cp.begin(), with_cp.end());
+        output_signal.insert(output_signal.end(), sym_block.begin(), sym_block.end());
     }
 
-    fftw_destroy_plan(plan);
+    return output_signal;
+}
+
+vector<complex<double>> ofdm_modulator(const vector<complex<double>>& symbols, struct SharedData& sd) {
+    
+    const auto& cfg = sd.ofdm;
+    vector<complex<double>> sym_blocks;
+    vector<complex<double>> result;
+    vector<complex<double>> ofdm_signal;
+    
+    const int N = cfg.n_subcarriers;
+    
+    if (symbols.size() < N || (symbols.size() % N != 0)) return {};
+
+    fftw_complex *in = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    fftw_complex *out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+
+    fftw_plan p = fftw_plan_dft_1d(N, in, out, FFTW_BACKWARD, FFTW_ESTIMATE);
+
+    for (size_t i = 0; i + N <= symbols.size(); i += N){
+        sym_blocks.clear();
+        result.clear();
+
+        sym_blocks.insert(sym_blocks.begin(), symbols.begin() + i, symbols.begin() + i + N);
+        result.resize(N);
+
+        for (size_t j = 0; j < N; ++j) {
+            in[j][0] = sym_blocks[j].real();
+            in[j][1] = sym_blocks[j].imag();
+        }
+
+        fftw_execute(p);
+
+        for (size_t j = 0; j < N; ++j) {
+            result[j] = { out[j][0] / N, out[j][1] / N };
+        }
+
+        result.insert(result.begin(), result.end() - cfg.cp_len, result.end());
+
+        ofdm_signal.insert(ofdm_signal.end(), result.begin(), result.end());
+    }
+
+    fftw_destroy_plan(p);
     fftw_free(in);
     fftw_free(out);
 
