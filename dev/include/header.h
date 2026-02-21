@@ -85,6 +85,8 @@ struct Flags{
     bool channel_estimated = false;
     bool cfo_est_enabled = false;
     bool data_est_enabled = false;
+    bool ofdm_eq_enabled = false;
+    bool cut_begin = false;
 
     int modulation_index;
 };

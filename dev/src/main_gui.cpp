@@ -159,7 +159,7 @@ int main() {
                 ImGui::Separator();
 
                 float tx_gain = sd.tx_gain;
-                if (ImGui::SliderFloat("rx gain", &tx_gain, -40, 40)) {
+                if (ImGui::SliderFloat("Tx gain", &tx_gain, -40, 89)) {
                     if (sd.flags.g_running){
                         sd.tx_gain = tx_gain;
                         sd.flags.tx_gain_changed = true;
@@ -302,8 +302,9 @@ int main() {
             ImGui::Checkbox("Time Estimation", &sd.flags.ofdm_time_est);
             ImGui::SameLine();
             ImGui::Text("Signal Begin: %d", sd.ofdm.sig_begin);
-            // ImGui::Checkbox("CFO Estimation", &sd.flags.cfo_est_enabled);
-            // ImGui::Checkbox("Data Estimation", &sd.flags.data_est_enabled);
+            ImGui::Checkbox("Cut Begin", &sd.flags.cut_begin);
+            ImGui::Checkbox("CFO Estimation", &sd.flags.cfo_est_enabled);
+            ImGui::Checkbox("EQ", &sd.flags.ofdm_eq_enabled);
         }
 
         ImGui::End();

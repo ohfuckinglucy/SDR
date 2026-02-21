@@ -76,7 +76,7 @@ vector<complex<double>> generate_known_preamble(int N) {
     };
     
     int seq_idx = 0;
-    for (int i = 2; i < N; i += 2) {
+    for (int i = 0; i < N; i += 2) {
         preamble[i] = pilot_seq[seq_idx++ % 32] / sqrt(2.0);
     }
     

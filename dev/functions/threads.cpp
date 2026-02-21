@@ -16,7 +16,7 @@ void rx_back(SharedData& sd, SDRConfig &config) {
         return;
     }
 
-    const size_t SCOPE_DISPLAY_SIZE = 20000; 
+    const size_t SCOPE_DISPLAY_SIZE = 1920; 
     vector<complex<double>> scope_display_buffer(SCOPE_DISPLAY_SIZE, {0.0, 0.0});
 
     vector<complex<double>> signal;
@@ -184,12 +184,16 @@ void rx_back(SharedData& sd, SDRConfig &config) {
 
             if (sd.flags.ofdm_time_est){
                 sd.ofdm.sig_begin = time_est(local_raw_buffer, ref(sd));
-                local_raw_buffer = cfo_est(local_raw_buffer, sd);
-
-                if (sd.ofdm.sig_begin >= 0){
-                    local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.sig_begin);
+                
+                if (sd.flags.cfo_est_enabled){
+                    local_raw_buffer = cfo_est(local_raw_buffer, sd);
                 }
 
+                if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin){
+                    local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.sig_begin);
+                }
+            }
+            if (sd.flags.ofdm_eq_enabled){
                 local_raw_buffer = discard_cp(local_raw_buffer, ref(sd));
                 local_raw_buffer = ofdm_equalize(local_raw_buffer, ref(sd));
             }
