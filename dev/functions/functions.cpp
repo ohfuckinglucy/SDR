@@ -77,3 +77,20 @@ vector<SoapySDRKwargs> find_pluto_devices() {
     
     return result;
 }
+
+void update_scope_buffer(vector<complex<double>>& scope_buffer,
+                         const vector<complex<double>>& new_samples,
+                         size_t SCOPE_DISPLAY_SIZE) 
+{
+    if (new_samples.size() >= SCOPE_DISPLAY_SIZE) {
+        scope_buffer.assign(new_samples.end() - SCOPE_DISPLAY_SIZE, new_samples.end());
+    } else {
+        size_t shift = new_samples.size();
+        if (scope_buffer.size() < SCOPE_DISPLAY_SIZE)
+            scope_buffer.resize(SCOPE_DISPLAY_SIZE, {0.0, 0.0});
+        for (size_t i = 0; i < SCOPE_DISPLAY_SIZE - shift; ++i)
+            scope_buffer[i] = scope_buffer[i + shift];
+        for (size_t i = 0; i < shift; ++i)
+            scope_buffer[SCOPE_DISPLAY_SIZE - shift + i] = new_samples[i];
+    }
+}

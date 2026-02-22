@@ -82,8 +82,38 @@ int main() {
 
         ImGui::Begin("TX Control", nullptr, ImGuiWindowFlags_NoCollapse);
 
-        ImGui::Combo("Modulation", &modulation_idx, modulation_types, IM_ARRAYSIZE(modulation_types));
-        sd.flags.modulation_index = modulation_idx;
+        static int tx_mode = 0;
+
+        const char* tx_modes[] = {
+            "QAM::2",
+            "QAM::4",
+            "QAM::16",
+            "QAM::2 + OFDM",
+            "QAM::4 + OFDM",
+            "QAM::16 + OFDM"
+        };
+
+        if (ImGui::Combo("TX Mode", &tx_mode, tx_modes, IM_ARRAYSIZE(tx_modes))) {
+            std::lock_guard<std::mutex> lock(sd.mtx);
+
+            if (tx_mode < 3) {
+                sd.flags.ofdm_enabled_tx = false;
+                sd.flags.modulation_index = tx_mode;
+            } else {
+                sd.flags.ofdm_enabled_tx = true;
+                sd.flags.modulation_index = tx_mode - 3;
+            }
+
+            sd.flags.tx_regenerate = true;
+        }
+
+        static int tx_symbol_count = 256;
+
+        if (ImGui::SliderInt("TX Symbols", &tx_symbol_count, 16, 4096)) {
+            std::lock_guard<std::mutex> lock(sd.mtx);
+            sd.tx_symbol_count = tx_symbol_count;
+            sd.flags.tx_regenerate = true;
+        }
 
         int L = sd.FormFilter.tx_l;
         if (ImGui::SliderInt("L", &L, 1, 100)) {

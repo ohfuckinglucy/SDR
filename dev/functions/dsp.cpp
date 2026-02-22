@@ -252,6 +252,9 @@ vector<complex<double>> cfo_est(vector<complex<double>> signal, SharedData &sd){
     int N = sd.ofdm.n_subcarriers;
     double cfo = sd.ofdm_sync.cfo_estimate;
 
+    // for (int k = 0; k < signal.size(); ++k)
+    //     signal[k] *= exp(complex<double>(0, -2*M_PI*cfo*k/N));
+
     for (int k = 0; size_t(k) < signal.size(); ++k) {
         signal[k] *= exp(complex<double>(0, -2 * M_PI * cfo * k / N));
     }

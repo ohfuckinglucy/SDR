@@ -166,13 +166,38 @@ int main() {
                     }
                 }
 
-                const char* modulation_types[] = { "QAM::2", "QAM::4", "QAM::16" };
-                static int modulation_idx = sd.flags.modulation_index;
-                if (ImGui::Combo("Modulation", &modulation_idx, modulation_types, IM_ARRAYSIZE(modulation_types))) {
-                    sd.flags.modulation_index = modulation_idx;
+                static int tx_mode = 0;
+
+                const char* tx_modes[] = {
+                    "QAM::2",
+                    "QAM::4",
+                    "QAM::16",
+                    "QAM::2 + OFDM",
+                    "QAM::4 + OFDM",
+                    "QAM::16 + OFDM"
+                };
+
+                if (ImGui::Combo("TX Mode", &tx_mode, tx_modes, IM_ARRAYSIZE(tx_modes))) {
+                    std::lock_guard<std::mutex> lock(sd.mtx);
+
+                    if (tx_mode < 3) {
+                        sd.flags.ofdm_enabled_tx = false;
+                        sd.flags.modulation_index = tx_mode;
+                    } else {
+                        sd.flags.ofdm_enabled_tx = true;
+                        sd.flags.modulation_index = tx_mode - 3;
+                    }
+
+                    sd.flags.tx_regenerate = true;
                 }
 
-                ImGui::Checkbox("OFDM", &sd.flags.ofdm_enabled_tx);
+                static int tx_symbol_count = 256;
+
+                if (ImGui::SliderInt("TX Symbols", &tx_symbol_count, 16, 4096)) {
+                    std::lock_guard<std::mutex> lock(sd.mtx);
+                    sd.tx_symbol_count = tx_symbol_count;
+                    sd.flags.tx_regenerate = true;
+                }
 
                 int L = sd.FormFilter.tx_l;
                 if (ImGui::SliderInt("L", &L, 1, 100)) {
@@ -199,7 +224,6 @@ int main() {
 
             ImGui::EndMainMenuBar();
         }
-        ImGuiViewport* vp = ImGui::GetMainViewport();
 
         ImGui::Begin("Control Panel", nullptr,
             ImGuiWindowFlags_NoCollapse);
@@ -220,6 +244,14 @@ int main() {
             if (sd.flags.g_running) {
                 sd.freq = freq;
                 sd.flags.rx_freq_changed = true;
+            }
+        }
+
+        float rx_bandwidth = sd.rx_bandwidth;
+        if (ImGui::SliderFloat("RX BandWidth", &rx_bandwidth, 0.2e6, 10e6, "%e")) {
+            if (sd.flags.g_running) {
+                sd.rx_bandwidth = rx_bandwidth;
+                sd.flags.rx_bw_changed = true;
             }
         }
 

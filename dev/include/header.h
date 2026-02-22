@@ -81,12 +81,14 @@ struct Flags{
     bool tx_gain_changed = false;
     bool rx_freq_changed = false;
     bool tx_freq_changed = false;
+    bool rx_bw_changed = false;
     bool ofdm_time_est = false;
     bool channel_estimated = false;
     bool cfo_est_enabled = false;
     bool data_est_enabled = false;
     bool ofdm_eq_enabled = false;
     bool cut_begin = false;
+    bool tx_regenerate = true;
 
     int modulation_index;
 };
@@ -167,10 +169,13 @@ struct SharedData {
     static constexpr size_t MAX_SAMPLES = 1920*2;
     static constexpr size_t MAX_SYMBOLS = 192*2;
 
+    int tx_symbol_count = 256;
+
     double tx_gain = -10;
     double rx_gain = 20;
 
     int freq = 734750000;
+    double rx_bandwidth = 1e6;
 };
 
 template<typename T>
@@ -187,6 +192,10 @@ complex<double> costas_loop(SharedData& sd, complex<double> r);
 std::complex<double> costas_loop_16qam(SharedData& sd, std::complex<double> r);
 
 int bits_per_symbol(string type);
+
+void update_scope_buffer(vector<complex<double>>& scope_buffer,
+                         const vector<complex<double>>& new_samples,
+                         size_t SCOPE_DISPLAY_SIZE);
 
 vector<complex<double>> ofdm_modulator(const vector<complex<double>>& symbols, struct SharedData& sd);
 vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, struct SharedData& sd);
