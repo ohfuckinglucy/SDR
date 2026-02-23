@@ -176,6 +176,13 @@ struct SharedData {
 
     int freq = 734750000;
     double rx_bandwidth = 1e6;
+
+    vector<int> timing_offsets;
+    size_t timing_head = 0;
+
+    SharedData() {
+        timing_offsets.resize(SCOPE_SIZE, 0);
+    }
 };
 
 template<typename T>

@@ -62,25 +62,13 @@ int bits_per_symbol(string type){
 }
 
 vector<complex<double>> generate_known_preamble(int N) {
-    vector<complex<double>> preamble(N, {0.0, 0.0});
-    
-    const complex<double> pilot_seq[] = {
-        {1.0, 1.0}, {-1.0, 1.0}, {1.0, -1.0}, {-1.0, -1.0},
-        {1.0, 1.0}, {1.0, -1.0}, {-1.0, 1.0}, {1.0, 1.0},
-        {-1.0, -1.0}, {1.0, -1.0}, {-1.0, 1.0}, {-1.0, -1.0},
-        {1.0, 1.0}, {-1.0, 1.0}, {1.0, -1.0}, {-1.0, -1.0},
-        {-1.0, 1.0}, {1.0, 1.0}, {-1.0, -1.0}, {1.0, -1.0},
-        {1.0, 1.0}, {-1.0, -1.0}, {1.0, -1.0}, {-1.0, 1.0},
-        {-1.0, -1.0}, {1.0, 1.0}, {-1.0, 1.0}, {1.0, -1.0},
-        {1.0, -1.0}, {-1.0, -1.0}, {1.0, 1.0}, {-1.0, 1.0}
-    };
-    
-    int seq_idx = 0;
-    for (int i = 0; i < N; i += 2) {
-        preamble[i] = pilot_seq[seq_idx++ % 32] / sqrt(2.0);
+    vector<complex<double>> freq(N, {0,0});
+
+    for (int k = 0; k < N; k += 2) {
+        freq[k] = {1.0, 0.0};
     }
-    
-    return preamble;
+
+    return freq;
 }
 
 vector<complex<double>> preamble_generate(struct SharedData& sd){

@@ -334,6 +334,8 @@ int main() {
             ImGui::Checkbox("Time Estimation", &sd.flags.ofdm_time_est);
             ImGui::SameLine();
             ImGui::Text("Signal Begin: %d", sd.ofdm.sig_begin);
+            ImGui::SameLine();
+            ImGui::SliderInt("Manual Sync", &sd.ofdm.sig_begin, 0, 1920);
             ImGui::Checkbox("Cut Begin", &sd.flags.cut_begin);
             ImGui::Checkbox("CFO Estimation", &sd.flags.cfo_est_enabled);
             ImGui::Checkbox("EQ", &sd.flags.ofdm_eq_enabled);
@@ -341,17 +343,15 @@ int main() {
 
         ImGui::End();
 
-        ImGui::Begin("Plots",
+        ImGui::Begin("Constellation and RX Scope",
             nullptr,
             ImGuiWindowFlags_NoTitleBar
         );
 
         float available_width = ImGui::GetContentRegionAvail().x;
         float plot_width = (available_width - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
-        ImVec2 plot_size1(-1,600);
-        ImVec2 plot_size2(plot_width, 600);
         
-        if (ImPlot::BeginPlot("Constellation", plot_size2)) {
+        if (ImPlot::BeginPlot("Constellation", ImVec2(600, 600))) {
             vector<double> plot_real, plot_imag;
             {
                 lock_guard<mutex> lock(sd.mtx);
@@ -370,7 +370,7 @@ int main() {
 
         ImGui::SameLine();
 
-        if (ImPlot::BeginPlot("RX Scope", plot_size2)) {
+        if (ImPlot::BeginPlot("RX Scope", ImVec2(-1, 600))) {
             vector<double> scope_I, scope_Q;
             {
                 lock_guard<mutex> lock(sd.mtx);
@@ -390,8 +390,15 @@ int main() {
             ImPlot::EndPlot();
         }
 
+        ImGui::End();
+
+        ImGui::Begin("FFT",
+            nullptr,
+            ImGuiWindowFlags_NoTitleBar
+        );
+
         if (sd.flags.fft_flag){
-            if (ImPlot::BeginPlot("FFT", plot_size1)) {
+            if (ImPlot::BeginPlot("Other", ImVec2(-1, 400))) {
                 vector<double> local_mag;
                 {
                     lock_guard<mutex> lock(sd.mtx);
@@ -410,6 +417,23 @@ int main() {
                 }
                 ImPlot::EndPlot();
             }
+        }
+
+        if (ImPlot::BeginPlot("Timing Offsets", ImVec2(-1, 300))) {
+            vector<double> plot_offsets;
+            {
+                lock_guard<mutex> lock(sd.mtx);
+                plot_offsets.resize(sd.SCOPE_SIZE);
+                size_t idx = sd.timing_head;
+                for (size_t i = 0; i < sd.SCOPE_SIZE; i++) {
+                    plot_offsets[i] = sd.timing_offsets[idx];
+                    idx = (idx + 1) % sd.SCOPE_SIZE;
+                }
+            }
+
+            ImPlot::SetupAxesLimits(0, sd.SCOPE_SIZE, 0, *max_element(plot_offsets.begin(), plot_offsets.end()) + 1);
+            ImPlot::PlotLine("Offset", plot_offsets.data(), plot_offsets.size());
+            ImPlot::EndPlot();
         }
 
         ImGui::End();

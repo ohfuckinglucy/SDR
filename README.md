@@ -2,7 +2,7 @@
 
 **Скрипт**
 ```bash
-chmod +x
+chmod +x script.sh
 sudo ./script.sh
 ```
 ---
@@ -74,6 +74,13 @@ sudo ldconfig
 **SDL, glew, fftw**
 ```bash
 sudo apt install libsdl2-dev libgl1-mesa-dev libglew-dev libfftw3-dev
+```
+
+**GIT SubModules**
+```bash
+git submodule update --remote --recursive
+# или
+git submodule update --init --recursive
 ```
 
 ## Запуск

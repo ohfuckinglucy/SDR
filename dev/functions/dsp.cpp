@@ -72,6 +72,9 @@ void sym_sync(SharedData& sd, const vector<complex<double>>& buf)
         while (sd.gardner.ss_p2 < 0.0)  sd.gardner.ss_p2 += 1.0;
 
         sd.gardner.ss_offset = int(sd.gardner.ss_p2 * L);
+
+        sd.timing_offsets[sd.timing_head] = sd.gardner.ss_offset;
+        sd.timing_head = (sd.timing_head + 1) % sd.SCOPE_SIZE;
     }
 }
 
@@ -176,10 +179,10 @@ int time_est(vector<complex<double>> signal, SharedData &sd){
         num = 0; denum = 0;
         for (int i = 0; i < N/2; ++i){
             num += signal[teta + i + N/2] * conj(signal[teta + i]);
-            denum += norm(signal[teta + i]);
+            denum += norm(signal[teta + i]) + norm(signal[teta + i + N/2]);
         }
 
-        double cur_pos = abs(num / denum);
+        double cur_pos = abs(num) * abs(num) / (denum * denum);
 
         if (cur_pos > max_pos){
             max_pos = cur_pos;
@@ -195,6 +198,11 @@ int time_est(vector<complex<double>> signal, SharedData &sd){
     double phase = arg(correlation);
     
     sd.ofdm_sync.cfo_estimate = phase / M_PI;
+
+    if (sd.flags.ofdm_enabled_tx){
+        sd.flags.ofdm_time_est = false;
+    }
+
 
     return best_teta;
 }
@@ -251,9 +259,6 @@ vector<complex<double>> discard_cp(vector<complex<double>> signal, SharedData &s
 vector<complex<double>> cfo_est(vector<complex<double>> signal, SharedData &sd){
     int N = sd.ofdm.n_subcarriers;
     double cfo = sd.ofdm_sync.cfo_estimate;
-
-    // for (int k = 0; k < signal.size(); ++k)
-    //     signal[k] *= exp(complex<double>(0, -2*M_PI*cfo*k/N));
 
     for (int k = 0; size_t(k) < signal.size(); ++k) {
         signal[k] *= exp(complex<double>(0, -2 * M_PI * cfo * k / N));
