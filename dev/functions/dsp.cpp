@@ -167,86 +167,49 @@ complex<double> costas_loop_16qam(SharedData& sd, complex<double> r) {
     return r_rotated; 
 }
 
-int time_est(vector<complex<double>> signal, SharedData &sd){
-    double max_pos = 0;
-    int best_teta = 0;
+int ofdm_time_sync(const vector<complex<double>>& signal, SharedData& sd){
     int N = sd.ofdm.n_subcarriers;
-    complex<double> num = 0;
-    double denum = 0;
-    complex<double> best_num = 0;
-    double best_denum = 1;
-    
-    if (int(signal.size()) < N) return -1;
+    int CP = sd.ofdm.cp_len;
 
-    for (size_t teta = 0; teta < signal.size() - N; ++teta){
-        num = 0; denum = 0;
-        for (int i = 0; i < N/2; ++i){
-            num += signal[teta + i + N/2] * conj(signal[teta + i]);
-            denum += norm(signal[teta + i]) + norm(signal[teta + i + N/2]);
+    if (signal.size() < N + CP)
+        return -1;
+
+    double max_metric = 0.0;
+    int best_pos = 0;
+    complex<double> best_corr = 0;
+
+    for (size_t d = 0; d + N + CP < signal.size(); ++d){
+        complex<double> corr = 0.0;
+        double energy = 0.0;
+
+        for (int n = 0; n < CP; ++n){
+            corr += signal[d + n] * conj(signal[d + n + N]);
+            energy += norm(signal[d + n + N]);
         }
 
-        double cur_pos = abs(num) * abs(num) / (denum * denum);
+        double metric = norm(corr) / (energy + 1e-12);
 
-        if (cur_pos > max_pos){
-            max_pos = cur_pos;
-            best_teta = teta;
-            best_num = num;
-            best_denum = denum;
-        }
-    }
-
-    if (best_denum < 1e-12) return -1;
-
-    complex<double> correlation = best_num / best_denum;
-    double phase = arg(correlation);
-    
-    sd.ofdm_sync.cfo_estimate = phase / M_PI;
-
-    return best_teta;
-}
-
-int ofdm_time_sync(vector<complex<double>> signal, SharedData &sd){
-    double max_pos = 0;
-    int best_teta = 0;
-    int N = sd.ofdm.n_subcarriers;
-    complex<double> num = 0;
-    double denum = 0;
-    complex<double> best_num = 0;
-    double best_denum = 1;
-    
-    if (int(signal.size()) < N) return -1;
-
-    for (size_t teta = sd.ofdm.sig_begin + 80; teta < signal.size() - N; ++teta){
-        num = 0; denum = 0;
-        for (int i = 0; i < N/2; ++i){
-            num += signal[teta + i + N/2] * conj(signal[teta + i]);
-            denum += norm(signal[teta + i]) + norm(signal[teta + i + N/2]);
-        }
-
-        double cur_pos = abs(num) * abs(num) / (denum * denum);
-
-        if (cur_pos > max_pos){
-            max_pos = cur_pos;
-            best_teta = teta;
-            best_num = num;
-            best_denum = denum;
-        }
-
-        sd.ofdm_sym_sync_corr[sd.ofdm_sym_sync_head] = cur_pos;
+        sd.ofdm_sym_sync_corr[sd.ofdm_sym_sync_head] = metric;
         sd.ofdm_sym_sync_head = (sd.ofdm_sym_sync_head + 1) % sd.SCOPE_SIZE;
+
+        if (metric > max_metric){
+            max_metric = metric;
+            best_pos = d;
+            best_corr = corr;
+        }
     }
 
-    if (best_denum < 1e-12) return -1;
-
-    if (sd.flags.ofdm_enabled_tx){
-        sd.flags.cp_time_sync = false;
+    if (CP > 0 && abs(best_corr) > 1e-12){
+        complex<double> avg_corr = best_corr / static_cast<double>(CP);
+        double phase = arg(avg_corr);
+        sd.ofdm_sync.cfo_estimate = phase / (2.0 * M_PI);
     }
 
-    return best_teta;
+    return best_pos;
 }
 
 vector<complex<double>> discard_cp(vector<complex<double>> signal, SharedData &sd){
-    int begin = sd.ofdm.sig_begin;
+    int begin = 0;
 
     vector<complex<double>> sym_blocks;
     vector<complex<double>> result;

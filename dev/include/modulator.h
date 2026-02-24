@@ -10,3 +10,4 @@
 using namespace std;
 
 vector<complex<double>> modulator(vector<int16_t> bits, int len_bits, string type);
+void update_pilots(struct SharedData& sd);

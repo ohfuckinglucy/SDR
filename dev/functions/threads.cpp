@@ -9,17 +9,19 @@
 #include <ctime>
 #include <atomic>
 
-void rx_back(SharedData& sd, SDRConfig &config)
-{
+const vector<int16_t> barker = {
+    0,0,0,0,0,1,1,0,0,1,0,1,0
+};
+
+const size_t barker_len = barker.size();
+
+void rx_back(SharedData& sd, SDRConfig &config){
     if (!config.sdr || !config.rxStream) {
         cerr << "ERROR: SDR config!" << endl;
         sd.flags.g_running = false;
         return;
     }
 
-    const size_t SCOPE_DISPLAY_SIZE = 1920 * N_BUFFERS;
-
-    vector<complex<double>> scope_display_buffer(SCOPE_DISPLAY_SIZE);
     vector<complex<double>> local_raw_buffer;
     vector<complex<double>> local_symbols;
     size_t tx_sent_idx = 0;
@@ -31,25 +33,7 @@ void rx_back(SharedData& sd, SDRConfig &config)
     vector<complex<double>> tx_frame;
 
     for (size_t samples_sent = 0; sd.flags.g_running; ++samples_sent){
-        if (sd.flags.rx_gain_changed){
-            SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_RX, 0, sd.rx_gain);
-            sd.flags.rx_gain_changed = false;
-        }
-
-        if (sd.flags.tx_gain_changed){
-            SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_TX, 0, sd.tx_gain);
-            sd.flags.tx_gain_changed = false;
-        }
-
-        if (sd.flags.rx_freq_changed){
-            SoapySDRDevice_setFrequency(config.sdr, SOAPY_SDR_RX, 0, sd.freq, nullptr);
-            sd.flags.rx_freq_changed = false;
-        }
-
-        if (sd.flags.rx_bw_changed){
-            SoapySDRDevice_setBandwidth(config.sdr, SOAPY_SDR_RX, 0, sd.rx_bandwidth);
-            sd.flags.rx_bw_changed = false;
-        }
+        reconfig_sdr(ref(sd), ref(config));
 
         string mod_type;
         if (sd.flags.modulation_index == 0) mod_type = "QAM::2";
@@ -57,48 +41,54 @@ void rx_back(SharedData& sd, SDRConfig &config)
         else mod_type = "QAM::16";
 
         if (sd.flags.tx_regenerate){
-            vector<complex<double>> baseband_frame; 
+            vector<complex<double>> frame; 
+
             int bits_ps = bits_per_symbol(mod_type);
 
             size_t total_symbols = sd.tx_symbol_count;
 
             if (sd.flags.ofdm_enabled_tx) {
-                int data_per_symbol =
-                    sd.ofdm.n_subcarriers - sd.ofdm.pilot_idx.size();
+                int data_per_symbol = sd.ofdm.n_subcarriers - sd.ofdm.pilot_idx.size();
 
-                int ofdm_blocks =
-                    ceil((double)total_symbols / data_per_symbol);
+                int ofdm_blocks = ceil((double)total_symbols / data_per_symbol);
 
                 total_symbols = ofdm_blocks * data_per_symbol;
             }
 
             sd.bits.resize(total_symbols * bits_ps);
-            for (auto &b : sd.bits)
-                b = rand() % 2;
+
+            if (sd.bits.size() < 26) sd.bits.resize(100);
+
+            for (size_t i = 0; i < barker_len; ++i)
+                sd.bits[i] = barker[i];
+
+            for (size_t i = 0; i < barker_len; ++i)
+                sd.bits[barker_len + i] = barker[i];
+
+            for (size_t i = 2 * barker_len; i < sd.bits.size(); ++i)
+                sd.bits[i] = rand() % 2;
 
             vector<complex<double>> symbols = modulator(sd.bits, sd.bits.size(), mod_type);
-
-            tx_frame.clear();
 
             if (sd.flags.ofdm_enabled_tx){
                 vector<complex<double>> freq_blocks = insert_pilots(symbols, sd);
                 vector<complex<double>> data_signal = ofdm_modulator(freq_blocks, sd);
                 vector<complex<double>> preamble = preamble_generate(sd);
 
-                baseband_frame.reserve(preamble.size() + data_signal.size());
-                baseband_frame.insert(baseband_frame.end(), preamble.begin(), preamble.end());
-                baseband_frame.insert(baseband_frame.end(), data_signal.begin(), data_signal.end());
+                frame.reserve(preamble.size() + data_signal.size());
+                frame.insert(frame.end(), preamble.begin(), preamble.end());
+                frame.insert(frame.end(), data_signal.begin(), data_signal.end());
             } else {
-                baseband_frame = move(symbols);
+                frame = move(symbols);
             }
 
             tx_frame.clear();
-            if (!baseband_frame.empty()) {
+            if (!frame.empty()) {
                 if (sd.flags.upsampling_enabled) {
-                    tx_frame = UpSampler(baseband_frame, sd.FormFilter.tx_l);
+                    tx_frame = UpSampler(frame, sd.FormFilter.tx_l);
                     if (sd.flags.tx_filter) filter(tx_frame.data(), tx_frame.size(), sd.FormFilter.tx_l);
                 } else {
-                    tx_frame = move(baseband_frame);
+                    tx_frame = move(frame);
                 }
             }
 
@@ -174,26 +164,19 @@ void rx_back(SharedData& sd, SDRConfig &config)
             local_raw_buffer.push_back(x);
         }
 
-        
         if (sd.flags.ofdm_time_est) {
-            sd.ofdm.sig_begin = time_est(local_raw_buffer, sd);
-            sd.flags.ofdm_time_est = false;
+            sd.ofdm.sig_begin = ofdm_time_sync(local_raw_buffer, sd);
+            if (sd.flags.loopback_flag){
+                sd.flags.ofdm_time_est = false;
+            }
         }
         
         if (sd.flags.cfo_est_enabled) local_raw_buffer = cfo_est(local_raw_buffer, sd);
         
         if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin){
-            local_raw_buffer.erase(
-                local_raw_buffer.begin(),
-                local_raw_buffer.begin() + sd.ofdm.sig_begin + 80);
-            }
-            
-        if (sd.flags.cp_time_sync){
-            sd.ofdm.sym_begin = ofdm_time_sync(local_raw_buffer, sd);
+            local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.sig_begin);
         }
             
-        update_scope_buffer(scope_display_buffer, local_raw_buffer, SCOPE_DISPLAY_SIZE);
-
         if (sd.flags.ofdm_eq_enabled){
             local_raw_buffer = discard_cp(local_raw_buffer, sd);
             local_raw_buffer = ofdm_equalize(local_raw_buffer, sd);
@@ -202,46 +185,43 @@ void rx_back(SharedData& sd, SDRConfig &config)
         if (sd.flags.filter_enabled) filter(local_raw_buffer.data(), local_raw_buffer.size(), sd.FormFilter.rx_l);
 
         if (sd.gardner.sym_sync_enabled) {
-                sym_sync(sd, local_raw_buffer);
-                sd.flags.used_gardner = true;
-                for (size_t i = sd.gardner.ss_offset; i < local_raw_buffer.size(); i += sd.FormFilter.rx_l) {
-                    local_symbols.push_back(local_raw_buffer[i]);
-                }
-            } else {
-                local_symbols = (local_raw_buffer);
-                sd.flags.used_gardner = false;
+            sym_sync(sd, local_raw_buffer);
+            sd.flags.used_gardner = true;
+            for (size_t i = sd.gardner.ss_offset; i < local_raw_buffer.size(); i += sd.FormFilter.rx_l) {
+                local_symbols.push_back(local_raw_buffer[i]);
             }
+        } else {
+            local_symbols = (local_raw_buffer);
+            sd.flags.used_gardner = false;
+        }
 
-        if (sd.flags.fft_flag) {
-                size_t n = min(local_raw_buffer.size(), sd.fft.FFT_SIZE);
-                for (size_t i = 0; i < n; i++) {
-                    sd.fft.fft_in[i][0] = local_raw_buffer[local_raw_buffer.size() - n + i].real();
-                    sd.fft.fft_in[i][1] = local_raw_buffer[local_raw_buffer.size() - n + i].imag();
-                }
-                for (size_t i = n; i < sd.fft.FFT_SIZE; i++) {
-                    sd.fft.fft_in[i][0] = 0.0;
-                    sd.fft.fft_in[i][1] = 0.0;
-                }
-                
-                fftw_execute(sd.fft.fft_plan);
+        size_t n = min(local_raw_buffer.size(), sd.fft.FFT_SIZE);
 
-                for (size_t i = 0; i < sd.fft.FFT_SIZE; i++) {
-                    double re = sd.fft.fft_out[i][0];
-                    double im = sd.fft.fft_out[i][1];
-                    local_fft_mag[i] = log10(re * re + im * im + 1e-10);
-                }
-                sd.flags.fft_ready = true;
-            }
+        for (size_t i = 0; i < n; i++) {
+            sd.fft.fft_in[i][0] = local_raw_buffer[local_raw_buffer.size() - n + i].real();
+            sd.fft.fft_in[i][1] = local_raw_buffer[local_raw_buffer.size() - n + i].imag();
+        }
+        for (size_t i = n; i < sd.fft.FFT_SIZE; i++) {
+            sd.fft.fft_in[i][0] = 0.0;
+            sd.fft.fft_in[i][1] = 0.0;
+        }
+        
+        fftw_execute(sd.fft.fft_plan);
+
+        for (size_t i = 0; i < sd.fft.FFT_SIZE; i++) {
+            double re = sd.fft.fft_out[i][0];
+            double im = sd.fft.fft_out[i][1];
+            local_fft_mag[i] = log10(re * re + im * im + 1e-10);
+        }
+        sd.flags.fft_ready = true;
 
         {
             lock_guard<mutex> lock(sd.mtx);
 
             sd.raw_buffer = local_raw_buffer;
             sd.symbols = local_symbols;
-            sd.scope_buffer = scope_display_buffer;
 
-            if (sd.flags.fft_flag)
-                sd.fft.fft_magnitude = local_fft_mag;
+            sd.fft.fft_magnitude = local_fft_mag;
         }
     }
 }
@@ -258,17 +238,8 @@ void tx_back(SharedData& sd, SDRConfig &config) {
     
     while (sd.flags.g_running) {
         static bool bits_initialized = false;
-        if (sd.flags.tx_gain_changed)
-        {
-            SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_TX, 0, sd.tx_gain);
-            sd.flags.tx_gain_changed = false;
-        }
-
-        if (sd.flags.tx_freq_changed)
-        {
-            SoapySDRDevice_setFrequency(config.sdr, SOAPY_SDR_TX, 0, sd.freq, nullptr);
-            sd.flags.tx_freq_changed = false;
-        }
+        
+        reconfig_sdr(ref(sd), ref(config));
         
         string mod_type;
         if (sd.flags.modulation_index == 0) mod_type = "QAM::2";
@@ -276,7 +247,7 @@ void tx_back(SharedData& sd, SDRConfig &config) {
         else mod_type = "QAM::4";
         
         if (sd.flags.tx_regenerate){
-            vector<complex<double>> baseband_frame; 
+            vector<complex<double>> frame; 
             int bits_ps = bits_per_symbol(mod_type);
 
             size_t total_symbols = sd.tx_symbol_count;
@@ -304,20 +275,20 @@ void tx_back(SharedData& sd, SDRConfig &config) {
                 vector<complex<double>> data_signal = ofdm_modulator(freq_blocks, sd);
                 vector<complex<double>> preamble = preamble_generate(sd);
 
-                baseband_frame.reserve(preamble.size() + data_signal.size());
-                baseband_frame.insert(baseband_frame.end(), preamble.begin(), preamble.end());
-                baseband_frame.insert(baseband_frame.end(), data_signal.begin(), data_signal.end());
+                frame.reserve(preamble.size() + data_signal.size());
+                frame.insert(frame.end(), preamble.begin(), preamble.end());
+                frame.insert(frame.end(), data_signal.begin(), data_signal.end());
             } else {
-                baseband_frame = move(symbols);
+                frame = move(symbols);
             }
 
             tx_frame.clear();
-            if (!baseband_frame.empty()) {
+            if (!frame.empty()) {
                 if (sd.flags.upsampling_enabled) {
-                    tx_frame = UpSampler(baseband_frame, sd.FormFilter.tx_l);
+                    tx_frame = UpSampler(frame, sd.FormFilter.tx_l);
                     if (sd.flags.tx_filter) filter(tx_frame.data(), tx_frame.size(), sd.FormFilter.tx_l);
                 } else {
-                    tx_frame = move(baseband_frame);
+                    tx_frame = move(frame);
                 }
             }
 
@@ -355,7 +326,6 @@ void tx_back(SharedData& sd, SDRConfig &config) {
             long long timeNs = 0;
 
             int sr = SoapySDRDevice_readStream(config.sdr, config.rxStream, rx_buffs, config.rx_mtu, &flags, &timeNs, TIMEOUT);
-  
 
             long long tx_time = timeNs + TX_DELAY;
             flags = SOAPY_SDR_HAS_TIME;

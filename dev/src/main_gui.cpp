@@ -155,16 +155,7 @@ int main() {
             }
 
             if (ImGui::BeginPopup("TX Settings")) {
-                ImGui::Text("TX Configuration");
-                ImGui::Separator();
-
-                float tx_gain = sd.tx_gain;
-                if (ImGui::SliderFloat("Tx gain", &tx_gain, -40, 89)) {
-                    if (sd.flags.g_running){
-                        sd.tx_gain = tx_gain;
-                        sd.flags.tx_gain_changed = true;
-                    }
-                }
+                ImGui::SeparatorText("TX Configuration");
 
                 static int tx_mode = 0;
 
@@ -219,6 +210,17 @@ int main() {
                     ImGui::CloseCurrentPopup();
                 }
 
+                if (tx_mode >= 3){
+                    ImGui::SeparatorText("OFDM Settings");
+
+                    ImGui::SliderInt("Symbol Len", &sd.ofdm.n_subcarriers, 1, 128);
+                    ImGui::SliderInt("Prefix Len", &sd.ofdm.cp_len, 1, sd.ofdm.n_subcarriers/4);
+                    ImGui::SliderInt("Num Pilots", &sd.ofdm.num_pilots, 1, 20);
+
+                    if (ImGui::Button("Update Pilots"))
+                        update_pilots(ref(sd));
+                }
+
                 ImGui::EndPopup();
             }
 
@@ -230,38 +232,49 @@ int main() {
 
         ImGui::Text("FPS: %.1f (%.3f ms)", io.Framerate, 1000.0f / io.Framerate);
 
+        ImGui::SeparatorText("SDR Config");
+
         float rx_gain = sd.rx_gain;
         if (ImGui::SliderFloat("rx gain", &rx_gain, -40, 40)) {
-            if (sd.flags.g_running){
                 sd.rx_gain = rx_gain;
                 sd.flags.rx_gain_changed = true;
-            }
         }
+
+        float tx_gain = sd.tx_gain;
+            if (ImGui::SliderFloat("Tx gain", &tx_gain, -40, 89)) {
+                    sd.tx_gain = tx_gain;
+                    sd.flags.tx_gain_changed = true;
+            }
 
         float freq = sd.freq;
         if (ImGui::SliderFloat("Carrier Freq", &freq, 200e6, 900e6, "%e")) {
             sd.freq = freq;
-            if (sd.flags.g_running) {
                 sd.freq = freq;
                 sd.flags.rx_freq_changed = true;
-            }
+                sd.flags.tx_freq_changed = true;
         }
 
         float rx_bandwidth = sd.rx_bandwidth;
-        if (ImGui::SliderFloat("RX BandWidth", &rx_bandwidth, 0.2e6, 10e6, "%e")) {
-            if (sd.flags.g_running) {
+        if (ImGui::SliderFloat("Rx Sample Rate", &rx_bandwidth, 0.2e6, 10e6, "%e")) {
                 sd.rx_bandwidth = rx_bandwidth;
                 sd.flags.rx_bw_changed = true;
-            }
         }
 
-        bool enabled = sd.flags.filter_enabled;
-        if (ImGui::Checkbox("Enable Square Filter", &enabled)) {
+        float tx_bandwidth = sd.tx_bandwidth;
+        if (ImGui::SliderFloat("TX BandWidth", &tx_bandwidth, 0.2e6, 10e6, "%e")) {
+                sd.tx_bandwidth = tx_bandwidth;
+                sd.flags.tx_bw_changed = true;
+        }
+
+        ImGui::SeparatorText("Form Filter");
+
+        bool formfilter_enabled = sd.flags.filter_enabled;
+        if (ImGui::Checkbox("Enable Square Filter", &formfilter_enabled)) {
             {
                 lock_guard<mutex> lock(sd.mtx);
-                sd.flags.filter_enabled = enabled;
+                sd.flags.filter_enabled = formfilter_enabled;
                 
-                if (!enabled) {
+                if (!formfilter_enabled) {
                     sd.flags.mf_init = false;
                     sd.FormFilter.mf_index = 0;
                     sd.FormFilter.mf_sum = complex<double>(0.0);
@@ -271,48 +284,58 @@ int main() {
         }
 
         int L = sd.FormFilter.rx_l;
-        if (ImGui::SliderInt("Filter Length", &L, 2, 50)) {
-            lock_guard<mutex> lock(sd.mtx);
-            sd.FormFilter.rx_l = L;
-            sd.FormFilter.mf_delay.resize(L - 1, 0.0);
-            sd.flags.mf_init = false;
-            sd.FormFilter.mf_index = 0;
-            sd.FormFilter.mf_sum = 0.0;
+
+        if (formfilter_enabled){
+            if (ImGui::SliderInt("Filter Length", &L, 2, 50)) {
+                lock_guard<mutex> lock(sd.mtx);
+                sd.FormFilter.rx_l = L;
+                sd.FormFilter.mf_delay.resize(L - 1, 0.0);
+                sd.flags.mf_init = false;
+                sd.FormFilter.mf_index = 0;
+                sd.FormFilter.mf_sum = 0.0;
+            }
         }
+
+        ImGui::SeparatorText("Symbol Sync");
 
         bool sync_enabled = sd.gardner.sym_sync_enabled;
         if (ImGui::Checkbox("Symbol Sync", &sync_enabled)) {
             sd.gardner.sym_sync_enabled = sync_enabled;
         }
-        float BnTs = sd.gardner.BnTs;
-        float KpG = sd.gardner.Kp;
 
-        int Threshold = sd.Threshold;
-        if (ImGui::SliderInt("Threshold", &Threshold, 0, 1000)){
-            lock_guard<mutex> lock(sd.mtx);
-            sd.Threshold = Threshold;
+        if (sync_enabled){
+            ImGui::SameLine();
+
+            ImGui::Text("Offset: %d", sd.gardner.ss_offset);
+            float BnTs = sd.gardner.BnTs;
+            float KpG = sd.gardner.Kp;
+    
+            int Threshold = sd.Threshold;
+            if (ImGui::SliderInt("Threshold", &Threshold, 0, 1000)){
+                lock_guard<mutex> lock(sd.mtx);
+                sd.Threshold = Threshold;
+            }
+    
+            if (ImGui::SliderFloat("BnTs", &BnTs, 0.0f, 0.1f))
+            {
+                std::lock_guard<std::mutex> lock(sd.mtx);
+                sd.gardner.BnTs = BnTs;
+    
+                sd.gardner.ss_p1 = 0.0;
+                sd.gardner.ss_p2 = 0.0;
+            }
+    
+            if (ImGui::SliderFloat("Kp Gar", &KpG, 0.0f, 10.0f))
+            {
+                std::lock_guard<std::mutex> lock(sd.mtx);
+                sd.gardner.Kp = KpG;
+    
+                sd.gardner.ss_p1 = 0.0;
+                sd.gardner.ss_p2 = 0.0;
+            }
         }
-
-        if (ImGui::SliderFloat("BnTs", &BnTs, 0.0f, 0.1f))
-        {
-            std::lock_guard<std::mutex> lock(sd.mtx);
-            sd.gardner.BnTs = BnTs;
-
-            sd.gardner.ss_p1 = 0.0;
-            sd.gardner.ss_p2 = 0.0;
-        }
-
-        if (ImGui::SliderFloat("Kp Gar", &KpG, 0.0f, 10.0f))
-        {
-            std::lock_guard<std::mutex> lock(sd.mtx);
-            sd.gardner.Kp = KpG;
-
-            sd.gardner.ss_p1 = 0.0;
-            sd.gardner.ss_p2 = 0.0;
-        }
-
-
-        ImGui::Text("Offset: %d", sd.gardner.ss_offset);
+        
+        ImGui::SeparatorText("Phase, Freq Sync's");
         
         if (ImGui::Checkbox("Costas Loop", &sd.flags.costas_loop_enabled)){
             if (!sd.flags.costas_loop_enabled) {
@@ -324,10 +347,11 @@ int main() {
         if (Costas_enabled){
             ImGui::SameLine();
             ImGui::Checkbox("QAM16", &sd.flags.QAM16_costas_loop);
+            ImGui::SameLine();
+            ImGui::Text("Freq offset: %f", sd.costas.cl_theta_hat);
+            ImGui::SliderFloat("Kp", &sd.costas.cl_Kp, 0.0f, 0.3f);
+            ImGui::SliderFloat("Ki", &sd.costas.cl_Ki, 0.0f, 0.3f);
         }
-        ImGui::SliderFloat("Kp", &sd.costas.cl_Kp, 0.0f, 0.3f);
-        ImGui::SliderFloat("Ki", &sd.costas.cl_Ki, 0.0f, 0.3f);
-        ImGui::Checkbox("Spectrum", &sd.flags.fft_flag);
 
         ImGui::End();
 
@@ -398,34 +422,31 @@ int main() {
 
         ImGui::End();
 
-        
-        if (sd.flags.fft_flag){
-            ImGui::Begin("FFT",
-                nullptr,
-                ImGuiWindowFlags_NoTitleBar
-            );
-            if (ImPlot::BeginPlot("Other", ImVec2(-1, 400))) {
-                vector<double> local_mag;
-                {
-                    lock_guard<mutex> lock(sd.mtx);
-                    if (sd.flags.fft_ready) {
-                        local_mag = sd.fft.fft_magnitude;
-                    }
+        ImGui::Begin("FFT",
+            nullptr,
+            ImGuiWindowFlags_NoTitleBar
+        );
+        if (ImPlot::BeginPlot("Spectre", ImVec2(-1, 400))) {
+            vector<double> local_mag;
+            {
+                lock_guard<mutex> lock(sd.mtx);
+                if (sd.flags.fft_ready) {
+                    local_mag = sd.fft.fft_magnitude;
                 }
-                if (!local_mag.empty()) {
-                    vector<double> shifted(local_mag.size());
-                    size_t half = local_mag.size() / 2;
-                    for (size_t i = 0; i < half; i++) {
-                        shifted[i] = local_mag[i + half];
-                        shifted[i + half] = local_mag[i];
-                    }
-                    ImPlot::PlotLine("Magnitude", shifted.data(), shifted.size());
-                }
-                ImPlot::EndPlot();
             }
-
-            ImGui::End();
+            if (!local_mag.empty()) {
+                vector<double> shifted(local_mag.size());
+                size_t half = local_mag.size() / 2;
+                for (size_t i = 0; i < half; i++) {
+                    shifted[i] = local_mag[i + half];
+                    shifted[i + half] = local_mag[i];
+                }
+                ImPlot::PlotLine("Magnitude", shifted.data(), shifted.size());
+            }
+            ImPlot::EndPlot();
         }
+
+        ImGui::End();
 
         ImGui::Begin("Other",
             nullptr,

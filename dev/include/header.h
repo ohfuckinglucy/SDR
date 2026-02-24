@@ -82,6 +82,7 @@ struct Flags{
     bool rx_freq_changed = false;
     bool tx_freq_changed = false;
     bool rx_bw_changed = false;
+    bool tx_bw_changed = false;
     bool ofdm_time_est = false;
     bool channel_estimated = false;
     bool cfo_est_enabled = false;
@@ -131,10 +132,12 @@ struct device_finder{
 };
 
 struct ofdm_conf{
-    int8_t n_subcarriers = 64; // Кол-во поднесущих
-    int8_t cp_len = 16; // Длина префикса
+    int n_subcarriers = 64; // Кол-во поднесущих
+    int cp_len = 16; // Длина префикса
     int sig_begin = 0;
     int sym_begin = 0;
+    int num_pilots = 6;
+    int pilot_spacing = 8;
 
     vector<int8_t>pilot_idx = {8, 16, 24, 40, 48, 56};
 };
@@ -173,13 +176,14 @@ struct SharedData {
 
     int tx_symbol_count = 256;
 
-    double tx_gain = -10;
+    double tx_gain = 30;
     double rx_gain = 20;
 
     int Threshold = 0;
 
     int freq = 7.670000e+08;
-    double rx_bandwidth = 1e6;
+    double rx_bandwidth = 1.92e6;
+    double tx_bandwidth = 1.92e6;
 
     vector<int> timing_offsets;
     size_t timing_head = 0;
@@ -216,12 +220,11 @@ vector<complex<double>> ofdm_modulator(const vector<complex<double>>& symbols, s
 vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, struct SharedData& sd);
 vector<complex<double>> generate_known_preamble(int N);
 vector<complex<double>> preamble_generate(struct SharedData& sd);
-int time_est(vector<complex<double>> signal, SharedData &sd);
-int ofdm_time_sync(vector<complex<double>> signal, SharedData &sd);
+int ofdm_time_sync(const vector<complex<double>>& signal, SharedData& sd);
 vector<complex<double>> cfo_est(vector<complex<double>> signal, SharedData &sd);
 vector<complex<double>> discard_cp(vector<complex<double>> signal, SharedData &sd);
 vector<complex<double>> ofdm_equalize(vector<complex<double>> signal, SharedData &sd);
-
+void reconfig_sdr(SharedData &sd, SDRConfig &config);
 
 void rx_back(SharedData& sd, SDRConfig &config);
 void tx_back(SharedData& sd, SDRConfig &config);
@@ -234,7 +237,7 @@ extern const complex<double> i4;
 
 extern const map<string, complex<double>> qpsk_map;
 
-constexpr size_t N_BUFFERS = 1;
+constexpr size_t N_BUFFERS = 4;
 constexpr long long TIMEOUT = 400000;
 constexpr long long TX_DELAY = 4000000;
 

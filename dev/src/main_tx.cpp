@@ -93,6 +93,17 @@ int main() {
             "QAM::16 + OFDM"
         };
 
+        if (tx_mode >= 3){
+            ImGui::SeparatorText("OFDM Settings");
+
+            ImGui::SliderInt("Symbol Len", &sd.ofdm.n_subcarriers, 1, 128);
+            ImGui::SliderInt("Prefix Len", &sd.ofdm.cp_len, 1, sd.ofdm.n_subcarriers/4);
+            ImGui::SliderInt("Num Pilots", &sd.ofdm.num_pilots, 1, 20);
+
+            if (ImGui::Button("Update Pilots"))
+                update_pilots(ref(sd));
+        }
+
         if (ImGui::Combo("TX Mode", &tx_mode, tx_modes, IM_ARRAYSIZE(tx_modes))) {
             std::lock_guard<std::mutex> lock(sd.mtx);
 
@@ -185,6 +196,14 @@ int main() {
             if (sd.flags.g_running && config.sdr) {
                 sd.freq = freq;
                 sd.flags.tx_freq_changed = true;
+            }
+        }
+
+        float tx_bandwidth = sd.tx_bandwidth;
+        if (ImGui::SliderFloat("TX BandWidth", &tx_bandwidth, 0.2e6, 10e6, "%e")) {
+            if (sd.flags.g_running) {
+                sd.tx_bandwidth = tx_bandwidth;
+                sd.flags.tx_bw_changed = true;
             }
         }
 

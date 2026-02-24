@@ -122,9 +122,23 @@ void fftshift1D(fftw_complex* data, int N) {
 
     free(tmp);
 }
+void update_pilots(struct SharedData& sd){
+    sd.ofdm.pilot_idx.clear();
+    int N = sd.ofdm.n_subcarriers;
+    int num = sd.ofdm.num_pilots;
+
+    if (num <= 0 || N <= 0) return;
+
+    int step = N / (num + 1);
+
+    for (int i = 0; i < num; ++i){
+        int pos = (i+1) * step;
+        if (pos < N)
+            sd.ofdm.pilot_idx.push_back(pos);
+    }
+}
 
 vector<complex<double>> ofdm_modulator(const vector<complex<double>>& symbols, struct SharedData& sd) {
-    
     const auto& cfg = sd.ofdm;
     vector<complex<double>> sym_blocks;
     vector<complex<double>> result;
