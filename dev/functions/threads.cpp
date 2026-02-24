@@ -174,22 +174,25 @@ void rx_back(SharedData& sd, SDRConfig &config)
             local_raw_buffer.push_back(x);
         }
 
-        update_scope_buffer(
-            scope_display_buffer,
-            local_raw_buffer,
-            SCOPE_DISPLAY_SIZE);
-
+        
         if (sd.flags.ofdm_time_est) {
             sd.ofdm.sig_begin = time_est(local_raw_buffer, sd);
+            sd.flags.ofdm_time_est = false;
         }
-
+        
         if (sd.flags.cfo_est_enabled) local_raw_buffer = cfo_est(local_raw_buffer, sd);
-
+        
         if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin){
             local_raw_buffer.erase(
-            local_raw_buffer.begin(),
-            local_raw_buffer.begin() + sd.ofdm.sig_begin + 80);
+                local_raw_buffer.begin(),
+                local_raw_buffer.begin() + sd.ofdm.sig_begin + 80);
+            }
+            
+        if (sd.flags.cp_time_sync){
+            sd.ofdm.sym_begin = ofdm_time_sync(local_raw_buffer, sd);
         }
+            
+        update_scope_buffer(scope_display_buffer, local_raw_buffer, SCOPE_DISPLAY_SIZE);
 
         if (sd.flags.ofdm_eq_enabled){
             local_raw_buffer = discard_cp(local_raw_buffer, sd);

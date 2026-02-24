@@ -61,6 +61,8 @@ void sym_sync(SharedData& sd, const vector<complex<double>>& buf)
         auto mid   = buf[idx_m];
         auto late  = buf[idx_l];
 
+        if (abs(mid) < 200) continue;
+
         double error =
             mid.real() * (late.real() - early.real()) +
             mid.imag() * (late.imag() - early.imag());
@@ -80,6 +82,7 @@ void sym_sync(SharedData& sd, const vector<complex<double>>& buf)
 
 
 complex<double> costas_loop(SharedData& sd, complex<double> r){
+    if (abs(r.real()) < sd.Threshold) return {};
     auto arg = polar(1.0, -sd.costas.cl_theta_hat);
 
     complex<double> r_corrected = r * arg;
@@ -199,10 +202,45 @@ int time_est(vector<complex<double>> signal, SharedData &sd){
     
     sd.ofdm_sync.cfo_estimate = phase / M_PI;
 
-    if (sd.flags.ofdm_enabled_tx){
-        sd.flags.ofdm_time_est = false;
+    return best_teta;
+}
+
+int ofdm_time_sync(vector<complex<double>> signal, SharedData &sd){
+    double max_pos = 0;
+    int best_teta = 0;
+    int N = sd.ofdm.n_subcarriers;
+    complex<double> num = 0;
+    double denum = 0;
+    complex<double> best_num = 0;
+    double best_denum = 1;
+    
+    if (int(signal.size()) < N) return -1;
+
+    for (size_t teta = sd.ofdm.sig_begin + 80; teta < signal.size() - N; ++teta){
+        num = 0; denum = 0;
+        for (int i = 0; i < N/2; ++i){
+            num += signal[teta + i + N/2] * conj(signal[teta + i]);
+            denum += norm(signal[teta + i]) + norm(signal[teta + i + N/2]);
+        }
+
+        double cur_pos = abs(num) * abs(num) / (denum * denum);
+
+        if (cur_pos > max_pos){
+            max_pos = cur_pos;
+            best_teta = teta;
+            best_num = num;
+            best_denum = denum;
+        }
+
+        sd.ofdm_sym_sync_corr[sd.ofdm_sym_sync_head] = cur_pos;
+        sd.ofdm_sym_sync_head = (sd.ofdm_sym_sync_head + 1) % sd.SCOPE_SIZE;
     }
 
+    if (best_denum < 1e-12) return -1;
+
+    if (sd.flags.ofdm_enabled_tx){
+        sd.flags.cp_time_sync = false;
+    }
 
     return best_teta;
 }

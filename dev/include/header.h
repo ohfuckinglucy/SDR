@@ -89,6 +89,7 @@ struct Flags{
     bool ofdm_eq_enabled = false;
     bool cut_begin = false;
     bool tx_regenerate = true;
+    bool cp_time_sync = false;
 
     int modulation_index;
 };
@@ -133,6 +134,7 @@ struct ofdm_conf{
     int8_t n_subcarriers = 64; // Кол-во поднесущих
     int8_t cp_len = 16; // Длина префикса
     int sig_begin = 0;
+    int sym_begin = 0;
 
     vector<int8_t>pilot_idx = {8, 16, 24, 40, 48, 56};
 };
@@ -163,7 +165,7 @@ struct SharedData {
     vector<complex<double>> scope_buffer;
     size_t scope_head = 0;
     bool scope_filled = false;
-    static constexpr size_t SCOPE_SIZE = 1920*2;
+    static constexpr size_t SCOPE_SIZE = 1920;
     size_t last_rx_count = 0;
     
     static constexpr size_t MAX_SAMPLES = 1920*2;
@@ -174,14 +176,20 @@ struct SharedData {
     double tx_gain = -10;
     double rx_gain = 20;
 
-    int freq = 734750000;
+    int Threshold = 0;
+
+    int freq = 7.670000e+08;
     double rx_bandwidth = 1e6;
 
     vector<int> timing_offsets;
     size_t timing_head = 0;
 
+    vector<double> ofdm_sym_sync_corr;
+    size_t ofdm_sym_sync_head = 0;
+
     SharedData() {
         timing_offsets.resize(SCOPE_SIZE, 0);
+        ofdm_sym_sync_corr.resize(SCOPE_SIZE, 0);
     }
 };
 
@@ -209,6 +217,7 @@ vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, st
 vector<complex<double>> generate_known_preamble(int N);
 vector<complex<double>> preamble_generate(struct SharedData& sd);
 int time_est(vector<complex<double>> signal, SharedData &sd);
+int ofdm_time_sync(vector<complex<double>> signal, SharedData &sd);
 vector<complex<double>> cfo_est(vector<complex<double>> signal, SharedData &sd);
 vector<complex<double>> discard_cp(vector<complex<double>> signal, SharedData &sd);
 vector<complex<double>> ofdm_equalize(vector<complex<double>> signal, SharedData &sd);

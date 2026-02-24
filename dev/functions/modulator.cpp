@@ -1,5 +1,6 @@
 #include "modulator.h"
 #include "header.h"
+#include <algorithm>
 
 const complex<double> i0(0, 0);
 const complex<double> i1(1, 1);
@@ -109,6 +110,19 @@ vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, st
     return output_signal;
 }
 
+void fftshift1D(fftw_complex* data, int N) {
+    int mid = N / 2;
+    fftw_complex *tmp = (fftw_complex*) malloc(N * sizeof(fftw_complex));
+
+    if (tmp == NULL) return;
+
+    memcpy(tmp, data + mid, (N - mid) * sizeof(fftw_complex));
+    memcpy(tmp + (N - mid), data, mid * sizeof(fftw_complex));
+    memcpy(data, tmp, N * sizeof(fftw_complex));
+
+    free(tmp);
+}
+
 vector<complex<double>> ofdm_modulator(const vector<complex<double>>& symbols, struct SharedData& sd) {
     
     const auto& cfg = sd.ofdm;
@@ -138,6 +152,8 @@ vector<complex<double>> ofdm_modulator(const vector<complex<double>>& symbols, s
         }
 
         fftw_execute(p);
+
+        fftshift1D(out, N);
 
         for (size_t j = 0; j < N; ++j) {
             result[j] = { out[j][0] / N, out[j][1] / N };

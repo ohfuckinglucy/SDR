@@ -34,7 +34,7 @@ SDRConfig SDRinit(char *usb, struct SharedData &sd) {
     SoapySDRKwargs_clear(&args);
 
     config.sample_rate = 1e6;
-    config.carrier_freq = 734750000;
+    config.carrier_freq = 7.670000e+08;
 
     SoapySDRDevice_setSampleRate(config.sdr, SOAPY_SDR_RX, 0, config.sample_rate);
     SoapySDRDevice_setFrequency(config.sdr, SOAPY_SDR_RX, 0, config.carrier_freq, nullptr);
@@ -78,13 +78,10 @@ vector<SoapySDRKwargs> find_pluto_devices() {
     return result;
 }
 
-void update_scope_buffer(vector<complex<double>>& scope_buffer,
-                         const vector<complex<double>>& new_samples,
-                         size_t SCOPE_DISPLAY_SIZE) 
-{
-    if (new_samples.size() >= SCOPE_DISPLAY_SIZE) {
+void update_scope_buffer(vector<complex<double>>& scope_buffer, const vector<complex<double>>& new_samples, size_t SCOPE_DISPLAY_SIZE){
+    if (new_samples.size() >= SCOPE_DISPLAY_SIZE){
         scope_buffer.assign(new_samples.end() - SCOPE_DISPLAY_SIZE, new_samples.end());
-    } else {
+    } else{
         size_t shift = new_samples.size();
         if (scope_buffer.size() < SCOPE_DISPLAY_SIZE)
             scope_buffer.resize(SCOPE_DISPLAY_SIZE, {0.0, 0.0});
