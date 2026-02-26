@@ -64,11 +64,12 @@ int bits_per_symbol(string type){
 
 vector<complex<double>> generate_known_preamble(int N) {
     vector<complex<double>> freq(N, {0,0});
-
-    for (int k = 0; k < N; k += 2) {
-        freq[k] = {1.0, 0.0};
+    for (int k = 1; k < N/2; ++k) {
+        if (k % 2 == 0) {
+            freq[k] = {1.0, 0.0};
+            freq[N - k] = {1.0, 0.0};
+        }
     }
-
     return freq;
 }
 
@@ -76,111 +77,89 @@ vector<complex<double>> preamble_generate(struct SharedData& sd){
     return ofdm_modulator(generate_known_preamble(sd.ofdm.n_subcarriers), sd);
 }
 
-vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, struct SharedData& sd){
-    const auto& cfg = sd.ofdm;
-    const int N = cfg.n_subcarriers;
-    const int data_per_symbol = N - cfg.pilot_idx.size();
+vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, SharedData& sd) {
+    const int N = sd.ofdm.n_subcarriers;
+    const int dc = 0;
+    const int nyq = N / 2;
+    const auto& pilots = sd.ofdm.pilot_idx;
 
-    if (symbols.empty() || symbols.size() % data_per_symbol != 0) return {};
+    int usable = N - 2 - pilots.size();
+    if (usable <= 0) return {};
 
-    vector<complex<double>> output_signal;
+    size_t num_ofdm = (symbols.size() + usable - 1) / usable;
+    vector<complex<double>> out;
+    out.reserve(num_ofdm * N);
 
-    size_t num_symbols = symbols.size() / data_per_symbol;
     size_t data_ptr = 0;
 
-    for (size_t s = 0; s < num_symbols; ++s) {
-        vector<complex<double>> sym_block(N, {0.0, 0.0});
+    for (size_t s = 0; s < num_ofdm; ++s) {
+        vector<complex<double>> block(N, {0.0, 0.0});
 
         for (int k = 0; k < N; ++k) {
-            bool is_pilot = (find(cfg.pilot_idx.begin(), cfg.pilot_idx.end(), k) != cfg.pilot_idx.end());
+            if (k == dc || k == nyq) continue;
 
-            if (is_pilot) {
-                sym_block[k] = {1.0, 0.0}; 
+            if (find(pilots.begin(), pilots.end(), k) != pilots.end()) {
+                block[k] = {1.0, 0.0};
             } else {
-                if (data_ptr < symbols.size()) {
-                    sym_block[k] = symbols[data_ptr];
-                    data_ptr++;
-                }
+                if (data_ptr < symbols.size())
+                    block[k] = symbols[data_ptr++];
+                else
+                    block[k] = {0.0, 0.0};
             }
         }
 
-        output_signal.insert(output_signal.end(), sym_block.begin(), sym_block.end());
+        out.insert(out.end(), block.begin(), block.end());
     }
 
-    return output_signal;
+    return out;
 }
 
-void fftshift1D(fftw_complex* data, int N) {
-    int mid = N / 2;
-    fftw_complex *tmp = (fftw_complex*) malloc(N * sizeof(fftw_complex));
-
-    if (tmp == NULL) return;
-
-    memcpy(tmp, data + mid, (N - mid) * sizeof(fftw_complex));
-    memcpy(tmp + (N - mid), data, mid * sizeof(fftw_complex));
-    memcpy(data, tmp, N * sizeof(fftw_complex));
-
-    free(tmp);
-}
-void update_pilots(struct SharedData& sd){
+void update_pilots(SharedData& sd) {
     sd.ofdm.pilot_idx.clear();
     int N = sd.ofdm.n_subcarriers;
     int num = sd.ofdm.num_pilots;
-
     if (num <= 0 || N <= 0) return;
 
-    int step = N / (num + 1);
+    int usable = N - 2;
+    int step = usable / (num + 1);
 
-    for (int i = 0; i < num; ++i){
-        int pos = (i+1) * step;
-        if (pos < N)
+    for (int i = 0; i < num; ++i) {
+        int pos = 1 + (i + 1) * step;
+        if (pos != N/2 && pos < N)
             sd.ofdm.pilot_idx.push_back(pos);
     }
 }
 
-vector<complex<double>> ofdm_modulator(const vector<complex<double>>& symbols, struct SharedData& sd) {
-    const auto& cfg = sd.ofdm;
-    vector<complex<double>> sym_blocks;
-    vector<complex<double>> result;
+vector<complex<double>> ofdm_modulator(const vector<complex<double>>& freq_symbols, SharedData& sd) {
+    const int N = sd.ofdm.n_subcarriers;
+    const int CP = sd.ofdm.cp_len;
+    if (freq_symbols.size() % N != 0) return {};
+
     vector<complex<double>> ofdm_signal;
-    
-    const int N = cfg.n_subcarriers;
-    
-    if (symbols.size() < N || (symbols.size() % N != 0)) return {};
-
-    fftw_complex *in = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    fftw_complex *out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-
+    fftw_complex* in = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * N);
+    fftw_complex* out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * N);
     fftw_plan p = fftw_plan_dft_1d(N, in, out, FFTW_BACKWARD, FFTW_ESTIMATE);
 
-    for (size_t i = 0; i + N <= symbols.size(); i += N){
-        sym_blocks.clear();
-        result.clear();
-
-        sym_blocks.insert(sym_blocks.begin(), symbols.begin() + i, symbols.begin() + i + N);
-        result.resize(N);
-
-        for (size_t j = 0; j < N; ++j) {
-            in[j][0] = sym_blocks[j].real();
-            in[j][1] = sym_blocks[j].imag();
+    size_t ptr = 0;
+    while (ptr < freq_symbols.size()) {
+        for (int i = 0; i < N; ++i) {
+            in[i][0] = freq_symbols[ptr].real();
+            in[i][1] = freq_symbols[ptr].imag();
+            ptr++;
         }
 
         fftw_execute(p);
 
-        fftshift1D(out, N);
+        vector<complex<double>> time_sym(N);
+        for (int i = 0; i < N; ++i) time_sym[i] = {out[i][0] / N, out[i][1] / N};
 
-        for (size_t j = 0; j < N; ++j) {
-            result[j] = { out[j][0] / N, out[j][1] / N };
-        }
-
-        result.insert(result.begin(), result.end() - cfg.cp_len, result.end());
-
-        ofdm_signal.insert(ofdm_signal.end(), result.begin(), result.end());
+        time_sym.insert(time_sym.begin(), time_sym.end() - CP, time_sym.end());
+        ofdm_signal.insert(ofdm_signal.end(), time_sym.begin(), time_sym.end());
     }
 
     fftw_destroy_plan(p);
     fftw_free(in);
     fftw_free(out);
-
+    
     return ofdm_signal;
 }

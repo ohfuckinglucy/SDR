@@ -33,7 +33,7 @@ SDRConfig SDRinit(char *usb, struct SharedData &sd) {
     config.sdr = SoapySDRDevice_make(&args);
     SoapySDRKwargs_clear(&args);
 
-    config.sample_rate = 1.92e6;
+    config.sample_rate = 2e6;
     config.carrier_freq = 7.670000e+08;
 
     SoapySDRDevice_setSampleRate(config.sdr, SOAPY_SDR_RX, 0, config.sample_rate);
@@ -114,22 +114,16 @@ void reconfig_sdr(SharedData &sd, SDRConfig &config){
     }
 
     if (sd.flags.rx_bw_changed){
+        SoapySDRDevice_deactivateStream(config.sdr, config.rxStream, 0, 0);
         SoapySDRDevice_setSampleRate(config.sdr, SOAPY_SDR_RX, 0, sd.rx_bandwidth);
         sd.flags.rx_bw_changed = false;
+        SoapySDRDevice_activateStream(config.sdr, config.rxStream, 0, 0, 0);
     }
-
+    
     if (sd.flags.tx_bw_changed){
+        SoapySDRDevice_deactivateStream(config.sdr, config.txStream, 0, 0);
         SoapySDRDevice_setSampleRate(config.sdr, SOAPY_SDR_TX, 0, sd.tx_bandwidth);
         sd.flags.tx_bw_changed = false;
-    }
-
-    if (sd.flags.tx_gain_changed){
-        SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_TX, 0, sd.tx_gain);
-        sd.flags.tx_gain_changed = false;
-    }
-
-    if (sd.flags.tx_freq_changed){
-        SoapySDRDevice_setFrequency(config.sdr, SOAPY_SDR_TX, 0, sd.freq, nullptr);
-        sd.flags.tx_freq_changed = false;
+        SoapySDRDevice_activateStream(config.sdr, config.txStream,0, 0, 0);
     }
 }

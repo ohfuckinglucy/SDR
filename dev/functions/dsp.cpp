@@ -1,4 +1,5 @@
 #include "header.h"
+#include "modulator.h"
 #include <algorithm>
 
 vector<complex<double>> UpSampler(const vector<complex<double>>& symbols, int L){
@@ -61,7 +62,7 @@ void sym_sync(SharedData& sd, const vector<complex<double>>& buf)
         auto mid   = buf[idx_m];
         auto late  = buf[idx_l];
 
-        if (abs(mid) < 200) continue;
+        if (abs(mid) < sd.Threshold) continue;
 
         double error =
             mid.real() * (late.real() - early.real()) +
@@ -102,7 +103,6 @@ complex<double> costas_loop(SharedData& sd, complex<double> r){
         -integrator_limit,
         min(integrator_limit, sd.costas.cl_integrator)
     );
-
 
     sd.costas.cl_theta_hat += sd.costas.cl_Kp * error + sd.costas.cl_Ki * sd.costas.cl_integrator;
 
@@ -167,45 +167,57 @@ complex<double> costas_loop_16qam(SharedData& sd, complex<double> r) {
     return r_rotated; 
 }
 
-int ofdm_time_sync(const vector<complex<double>>& signal, SharedData& sd){
+vector<int> ofdm_time_sync(const vector<complex<double>>& signal, SharedData& sd){
     int N = sd.ofdm.n_subcarriers;
     int CP = sd.ofdm.cp_len;
+    if(signal.size() < N+CP) return {};
 
-    if (signal.size() < N + CP)
-        return -1;
-
+    vector<double> metrics(signal.size(), 0.0);
     double max_metric = 0.0;
-    int best_pos = 0;
-    complex<double> best_corr = 0;
 
-    for (size_t d = 0; d + N + CP < signal.size(); ++d){
+    for(size_t d=0; d+N+CP < signal.size(); ++d){
         complex<double> corr = 0.0;
         double energy = 0.0;
-
-        for (int n = 0; n < CP; ++n){
-            corr += signal[d + n] * conj(signal[d + n + N]);
-            energy += norm(signal[d + n + N]);
+        for(int n=0; n<CP; ++n){
+            corr += signal[d+n] * conj(signal[d+n+N]);
+            energy += norm(signal[d+n] + signal[d+n+N]);
         }
-
         double metric = norm(corr) / (energy + 1e-12);
-
-        sd.ofdm_sym_sync_corr[sd.ofdm_sym_sync_head] = metric;
-        sd.ofdm_sym_sync_head = (sd.ofdm_sym_sync_head + 1) % sd.SCOPE_SIZE;
-
-        if (metric > max_metric){
-            max_metric = metric;
-            best_pos = d;
-            best_corr = corr;
-        }
+        metrics[d] = metric;
+        if(metric > max_metric) max_metric = metric;
     }
 
-    if (CP > 0 && abs(best_corr) > 1e-12){
-        complex<double> avg_corr = best_corr / static_cast<double>(CP);
-        double phase = arg(avg_corr);
-        sd.ofdm_sync.cfo_estimate = phase / (2.0 * M_PI);
+    for(size_t i=0;i<signal.size();++i){
+        sd.ofdm_sym_sync_corr[sd.ofdm_sym_sync_head] = metrics[i];
+        sd.ofdm_sym_sync_head = (sd.ofdm_sym_sync_head+1) % sd.SCOPE_SIZE;
     }
 
-    return best_pos;
+    double threshold = 0.7*max_metric;
+    vector<int> raw_peaks;
+
+    int window = max(2, CP/2);
+    for(size_t i=window; i+window<metrics.size(); ++i){
+        bool peak = metrics[i] > threshold;
+        for(int w=-window; w<=window && peak; ++w) if(w!=0) peak &= metrics[i] > metrics[i+w];
+        if(peak) raw_peaks.push_back(i);
+    }
+
+    vector<int> cp_indices;
+    int min_dist = N; 
+    for(int idx : raw_peaks){
+        if(cp_indices.empty() || idx - cp_indices.back() >= min_dist)
+            cp_indices.push_back(idx);
+    }
+
+    if(!cp_indices.empty() && CP>0){
+        complex<double> avg_corr = 0.0;
+        int first_idx = cp_indices[0];
+        for(int n=0;n<CP;++n) avg_corr += signal[first_idx+n]*conj(signal[first_idx+n+N]);
+        avg_corr /= CP;
+        sd.ofdm_sync.cfo_estimate = arg(avg_corr)/(2.0*M_PI);
+    }
+
+    return cp_indices;
 }
 
 vector<complex<double>> discard_cp(vector<complex<double>> signal, SharedData &sd){
@@ -259,10 +271,13 @@ vector<complex<double>> discard_cp(vector<complex<double>> signal, SharedData &s
 
 vector<complex<double>> cfo_est(vector<complex<double>> signal, SharedData &sd){
     int N = sd.ofdm.n_subcarriers;
+    int CP = sd.ofdm.cp_len;
     double cfo = sd.ofdm_sync.cfo_estimate;
 
-    for (int k = 0; size_t(k) < signal.size(); ++k) {
-        signal[k] *= exp(complex<double>(0, -2 * M_PI * cfo * k / N));
+    double phase_per_sample = 2.0 * M_PI * cfo / N;
+
+    for (size_t k=0; k<signal.size(); ++k){
+        signal[k] *= exp(complex<double>(0, -phase_per_sample * k));
     }
 
     return signal;

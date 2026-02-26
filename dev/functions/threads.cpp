@@ -27,6 +27,7 @@ void rx_back(SharedData& sd, SDRConfig &config){
     size_t tx_sent_idx = 0;
     bool tx_active = false;
     vector<double> local_fft_mag(sd.fft.FFT_SIZE);
+    size_t total_samples = 0;
 
     vector<int16_t> tx_samples(2 * config.tx_mtu * N_BUFFERS, 0);
 
@@ -75,8 +76,8 @@ void rx_back(SharedData& sd, SDRConfig &config){
                 vector<complex<double>> data_signal = ofdm_modulator(freq_blocks, sd);
                 vector<complex<double>> preamble = preamble_generate(sd);
 
-                frame.reserve(preamble.size() + data_signal.size());
-                frame.insert(frame.end(), preamble.begin(), preamble.end());
+                // frame.reserve(preamble.size() + data_signal.size());
+                // frame.insert(frame.end(), preamble.begin(), preamble.end());
                 frame.insert(frame.end(), data_signal.begin(), data_signal.end());
             } else {
                 frame = move(symbols);
@@ -97,22 +98,27 @@ void rx_back(SharedData& sd, SDRConfig &config){
             sd.flags.tx_regenerate = false;
         }
 
+        size_t num_blocks;
         if (sd.flags.loopback_flag && !tx_frame.empty()) {
-            fill(tx_samples.begin(), tx_samples.end(), 0);
+            double scale = 12000.0;
+            size_t frame_len = tx_frame.size();
+            
+            num_blocks = (frame_len + config.tx_mtu - 1) / config.tx_mtu;
+            total_samples = num_blocks * config.tx_mtu;
 
-            size_t max_samples = min(tx_frame.size(), (size_t)(N_BUFFERS * config.tx_mtu));
+            tx_samples.assign(2 * total_samples, 0);
 
-            for (size_t i = 0; i < max_samples; ++i) {
-                double scale = 12000.0;
-
+            for (size_t i = 0; i < frame_len; ++i) {
                 tx_samples[2*i] = static_cast<int16_t>(tx_frame[i].real() * scale);
-                tx_samples[2*i+1] = static_cast<int16_t>(tx_frame[i].imag() * scale);
+                tx_samples[2*i + 1] = static_cast<int16_t>(tx_frame[i].imag() * scale);
             }
         }
 
         void *rx_buffs[] = {config.rx_buffer};
         int flags = 0;
         long long timeNs = 0;
+        
+        size_t buf_count = total_samples / config.tx_mtu;
 
         int sr = SoapySDRDevice_readStream(
             config.sdr,
@@ -123,25 +129,23 @@ void rx_back(SharedData& sd, SDRConfig &config){
             &timeNs,
             TIMEOUT);
 
-        if (sd.flags.loopback_flag && !tx_samples.empty()) {
-            long long tx_time = timeNs + TX_DELAY;
-            flags = SOAPY_SDR_HAS_TIME;
+        if (sd.flags.loopback_flag && !tx_samples.empty() && total_samples > 0) {
+            for (size_t blk = 0; blk < num_blocks; ++blk) {
+                const void* tx_buffs[] = { tx_samples.data() + 2 * blk * config.tx_mtu };
+                int flags = SOAPY_SDR_HAS_TIME;
+                long long tx_time = timeNs + TX_DELAY;
 
-            size_t tx_idx = samples_sent % N_BUFFERS;
+                SoapySDRDevice_writeStream(
+                    config.sdr,
+                    config.txStream,
+                    tx_buffs,
+                    config.tx_mtu,
+                    &flags,
+                    tx_time,
+                    TIMEOUT
+                );
+            }
 
-            const void* tx_buffs[] = {
-                tx_samples.data() +
-                (tx_idx * config.tx_mtu)
-            };
-
-            SoapySDRDevice_writeStream(
-                config.sdr,
-                config.txStream,
-                tx_buffs,
-                config.tx_mtu,
-                &flags,
-                tx_time,
-                TIMEOUT);
         }
 
         int16_t* data_ptr = static_cast<int16_t*>(rx_buffs[0]);
@@ -165,7 +169,12 @@ void rx_back(SharedData& sd, SDRConfig &config){
         }
 
         if (sd.flags.ofdm_time_est) {
-            sd.ofdm.sig_begin = ofdm_time_sync(local_raw_buffer, sd);
+            vector<int> preamble_indices = ofdm_time_sync(local_raw_buffer, sd);
+            if (!preamble_indices.empty()) {
+                sd.ofdm.sig_begin = preamble_indices[0];
+            } else {
+                sd.ofdm.sig_begin = -1;
+            }
             if (sd.flags.loopback_flag){
                 sd.flags.ofdm_time_est = false;
             }
@@ -275,8 +284,8 @@ void tx_back(SharedData& sd, SDRConfig &config) {
                 vector<complex<double>> data_signal = ofdm_modulator(freq_blocks, sd);
                 vector<complex<double>> preamble = preamble_generate(sd);
 
-                frame.reserve(preamble.size() + data_signal.size());
-                frame.insert(frame.end(), preamble.begin(), preamble.end());
+                // frame.reserve(preamble.size() + data_signal.size());
+                // frame.insert(frame.end(), preamble.begin(), preamble.end());
                 frame.insert(frame.end(), data_signal.begin(), data_signal.end());
             } else {
                 frame = move(symbols);

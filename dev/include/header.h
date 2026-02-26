@@ -48,8 +48,8 @@ struct SDRConfig {
 
 struct TED_gardner{
     bool sym_sync_enabled = false;
-    float BnTs = 0.0000001;
-    float Kp = 4.0;
+    float BnTs = 0.00000000000000000000001;
+    float Kp = 3.8;
     int ss_offset = 0;
     double ss_phase = 0.0;
     double ss_p1 = 0.0;
@@ -182,8 +182,8 @@ struct SharedData {
     int Threshold = 0;
 
     int freq = 7.670000e+08;
-    double rx_bandwidth = 1.92e6;
-    double tx_bandwidth = 1.92e6;
+    double rx_bandwidth = 2e6;
+    double tx_bandwidth = 2e6;
 
     vector<int> timing_offsets;
     size_t timing_head = 0;
@@ -220,11 +220,12 @@ vector<complex<double>> ofdm_modulator(const vector<complex<double>>& symbols, s
 vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, struct SharedData& sd);
 vector<complex<double>> generate_known_preamble(int N);
 vector<complex<double>> preamble_generate(struct SharedData& sd);
-int ofdm_time_sync(const vector<complex<double>>& signal, SharedData& sd);
+vector<int> ofdm_time_sync(const vector<complex<double>>& signal, SharedData& sd);
 vector<complex<double>> cfo_est(vector<complex<double>> signal, SharedData &sd);
 vector<complex<double>> discard_cp(vector<complex<double>> signal, SharedData &sd);
 vector<complex<double>> ofdm_equalize(vector<complex<double>> signal, SharedData &sd);
 void reconfig_sdr(SharedData &sd, SDRConfig &config);
+void fftshift1D(fftw_complex* data, int N);
 
 void rx_back(SharedData& sd, SDRConfig &config);
 void tx_back(SharedData& sd, SDRConfig &config);
