@@ -74,10 +74,10 @@ void rx_back(SharedData& sd, SDRConfig &config){
             if (sd.flags.ofdm_enabled_tx){
                 vector<complex<double>> freq_blocks = insert_pilots(symbols, sd);
                 vector<complex<double>> data_signal = ofdm_modulator(freq_blocks, sd);
-                vector<complex<double>> preamble = preamble_generate(sd);
+                vector<complex<double>> preamble = generate_shmidt_preamble(sd);
 
-                // frame.reserve(preamble.size() + data_signal.size());
-                // frame.insert(frame.end(), preamble.begin(), preamble.end());
+                frame.reserve(preamble.size() + data_signal.size());
+                frame.insert(frame.end(), preamble.begin(), preamble.end());
                 frame.insert(frame.end(), data_signal.begin(), data_signal.end());
             } else {
                 frame = move(symbols);
@@ -169,23 +169,33 @@ void rx_back(SharedData& sd, SDRConfig &config){
         }
 
         if (sd.flags.ofdm_time_est) {
-            vector<int> preamble_indices = ofdm_time_sync(local_raw_buffer, sd);
+            sd.ofdm.sig_begin = shmidt_sync(local_raw_buffer, sd);
+
+            if (sd.flags.loopback_flag){
+                sd.flags.ofdm_time_est = false;
+            }
+        }
+        
+        
+        if (sd.flags.cp_time_sync){
+            vector<int> preamble_indices = ofdm_sym_sync(local_raw_buffer, sd);
             if (!preamble_indices.empty()) {
                 sd.ofdm.sig_begin = preamble_indices[0];
             } else {
                 sd.ofdm.sig_begin = -1;
             }
             if (sd.flags.loopback_flag){
-                sd.flags.ofdm_time_est = false;
+                sd.flags.cp_time_sync = false;
             }
         }
-        
-        if (sd.flags.cfo_est_enabled) local_raw_buffer = cfo_est(local_raw_buffer, sd);
         
         if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin){
             local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.sig_begin);
         }
-            
+        
+        if (sd.flags.cfo_est_enabled) local_raw_buffer = freq_sync(local_raw_buffer, sd);
+        // if (sd.flags.cfo_est_enabled) local_raw_buffer = cfo_est(local_raw_buffer, sd);
+        
         if (sd.flags.ofdm_eq_enabled){
             local_raw_buffer = discard_cp(local_raw_buffer, sd);
             local_raw_buffer = ofdm_equalize(local_raw_buffer, sd);
@@ -282,10 +292,10 @@ void tx_back(SharedData& sd, SDRConfig &config) {
             if (sd.flags.ofdm_enabled_tx){
                 vector<complex<double>> freq_blocks = insert_pilots(symbols, sd);
                 vector<complex<double>> data_signal = ofdm_modulator(freq_blocks, sd);
-                vector<complex<double>> preamble = preamble_generate(sd);
+                vector<complex<double>> preamble = generate_shmidt_preamble(sd);
 
-                // frame.reserve(preamble.size() + data_signal.size());
-                // frame.insert(frame.end(), preamble.begin(), preamble.end());
+                frame.reserve(preamble.size() + data_signal.size());
+                frame.insert(frame.end(), preamble.begin(), preamble.end());
                 frame.insert(frame.end(), data_signal.begin(), data_signal.end());
             } else {
                 frame = move(symbols);

@@ -33,7 +33,7 @@ SDRConfig SDRinit(char *usb, struct SharedData &sd) {
     config.sdr = SoapySDRDevice_make(&args);
     SoapySDRKwargs_clear(&args);
 
-    config.sample_rate = 2e6;
+    config.sample_rate = 1.92e6;
     config.carrier_freq = 7.670000e+08;
 
     SoapySDRDevice_setSampleRate(config.sdr, SOAPY_SDR_RX, 0, config.sample_rate);

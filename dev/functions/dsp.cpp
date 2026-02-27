@@ -167,7 +167,42 @@ complex<double> costas_loop_16qam(SharedData& sd, complex<double> r) {
     return r_rotated; 
 }
 
-vector<int> ofdm_time_sync(const vector<complex<double>>& signal, SharedData& sd){
+int shmidt_sync(const vector<complex<double>>& signal, SharedData& sd){
+    int N = sd.ofdm.n_subcarriers;
+    int CP = sd.ofdm.cp_len;
+    int L = N / 2;
+
+    if (signal.size() < N + CP)
+        return -1;
+
+    float max_metric = 0.0;
+    int best_pos = 0;
+
+    for (size_t n = 0; n < signal.size() - 2*L; ++n){
+        complex<float> corr = 0.0;
+        float energy = 0.0;
+        float metric = 0.0f;
+
+        for (int k = 0; k < L; ++k){
+            corr += signal[n + k] * signal[n + k + L];
+            energy += norm(signal[n + k + L]);
+        }
+
+        metric = norm(corr) / energy * energy;
+
+        sd.ofdm_sym_sync_corr[sd.ofdm_sym_sync_head] = metric;
+        sd.ofdm_sym_sync_head = (sd.ofdm_sym_sync_head + 1) % sd.SCOPE_SIZE;
+
+        if (metric > max_metric){
+            max_metric = metric;
+            best_pos = n;
+        }
+    }
+
+    return best_pos + N;
+}
+
+vector<int> ofdm_sym_sync(const vector<complex<double>>& signal, SharedData& sd){
     int N = sd.ofdm.n_subcarriers;
     int CP = sd.ofdm.cp_len;
     if(signal.size() < N+CP) return {};
@@ -192,7 +227,7 @@ vector<int> ofdm_time_sync(const vector<complex<double>>& signal, SharedData& sd
         sd.ofdm_sym_sync_head = (sd.ofdm_sym_sync_head+1) % sd.SCOPE_SIZE;
     }
 
-    double threshold = 0.7*max_metric;
+    double threshold = 0.5*max_metric;
     vector<int> raw_peaks;
 
     int window = max(2, CP/2);
@@ -269,18 +304,60 @@ vector<complex<double>> discard_cp(vector<complex<double>> signal, SharedData &s
     return ofdm_signal;
 }
 
-vector<complex<double>> cfo_est(vector<complex<double>> signal, SharedData &sd){
+vector<complex<double>> cfo_est(const vector<complex<double>> &signal, SharedData &sd){
     int N = sd.ofdm.n_subcarriers;
     int CP = sd.ofdm.cp_len;
-    double cfo = sd.ofdm_sync.cfo_estimate;
+    double fs = sd.rx_bandwidth;
 
-    double phase_per_sample = 2.0 * M_PI * cfo / N;
+    complex<double> corr = 0;
 
-    for (size_t k=0; k<signal.size(); ++k){
-        signal[k] *= exp(complex<double>(0, -phase_per_sample * k));
+    for (int n = 0; n < CP; n++) {
+        corr += conj(signal[n]) * signal[n + N];
     }
 
-    return signal;
+    double epsilon = arg(corr) / (2 * M_PI);
+
+    double delta_f = epsilon * fs / N;
+
+    sd.ofdm_sync.cfo_estimate = delta_f;
+
+    vector<complex<double>> corrected = signal;
+    for (size_t n = 0; n < signal.size(); n++) {
+        double phase = -2 * M_PI * delta_f * n / fs;
+        corrected[n] *= complex<double>(cos(phase), sin(phase));
+    }
+
+    return corrected;
+}
+
+vector<complex<double>> freq_sync(const vector<complex<double>> &signal, SharedData &sd){
+    complex<double> C_0 = 0;
+    complex<double> C_1 = 0;
+    
+    int N = sd.ofdm.n_subcarriers;
+    int L = N / 2;
+    
+    vector<complex<double>> pss = generate_shmidt_preamble(sd);
+    
+    for (size_t n = 0; n < L; ++ n){
+        C_0 += signal[n] * conj(pss[n]);
+        C_1 += signal[n + L] * conj(pss[n]);
+    }
+
+    complex<double> product = C_1 * conj(C_0);
+    
+    double delta_teta = atan2(product.imag(), product.real());
+    
+    double delta_f = (delta_teta * sd.rx_bandwidth) / (N * M_PI);
+    
+    vector<complex<double>> corrected_signal = signal;
+
+    for (int n = 0; n < signal.size(); n++) {
+        double correction_phase = -2 * M_PI * delta_f * n / sd.rx_bandwidth;
+        corrected_signal[n] *= complex<double>(cos(correction_phase), sin(correction_phase));
+    }
+
+    return corrected_signal;
 }
 
 vector<complex<double>> ofdm_equalize(vector<complex<double>> signal, SharedData &sd){

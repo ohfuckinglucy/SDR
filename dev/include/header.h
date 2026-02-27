@@ -182,8 +182,8 @@ struct SharedData {
     int Threshold = 0;
 
     int freq = 7.670000e+08;
-    double rx_bandwidth = 2e6;
-    double tx_bandwidth = 2e6;
+    double rx_bandwidth = 1.92e6;
+    double tx_bandwidth = 1.92e6;
 
     vector<int> timing_offsets;
     size_t timing_head = 0;
@@ -218,14 +218,15 @@ void update_scope_buffer(vector<complex<double>>& scope_buffer,
 
 vector<complex<double>> ofdm_modulator(const vector<complex<double>>& symbols, struct SharedData& sd);
 vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, struct SharedData& sd);
-vector<complex<double>> generate_known_preamble(int N);
-vector<complex<double>> preamble_generate(struct SharedData& sd);
-vector<int> ofdm_time_sync(const vector<complex<double>>& signal, SharedData& sd);
-vector<complex<double>> cfo_est(vector<complex<double>> signal, SharedData &sd);
+vector<complex<double>> generate_shmidt_preamble(SharedData& sd);
+int shmidt_sync(const vector<complex<double>>& signal, SharedData& sd);
+vector<int> ofdm_sym_sync(const vector<complex<double>>& signal, SharedData& sd);
+vector<complex<double>> cfo_est(const vector<complex<double>> &signal, SharedData &sd);
 vector<complex<double>> discard_cp(vector<complex<double>> signal, SharedData &sd);
 vector<complex<double>> ofdm_equalize(vector<complex<double>> signal, SharedData &sd);
 void reconfig_sdr(SharedData &sd, SDRConfig &config);
 void fftshift1D(fftw_complex* data, int N);
+vector<complex<double>> freq_sync(const vector<complex<double>> &signal, SharedData &sd);
 
 void rx_back(SharedData& sd, SDRConfig &config);
 void tx_back(SharedData& sd, SDRConfig &config);

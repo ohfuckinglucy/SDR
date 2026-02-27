@@ -62,20 +62,36 @@ int bits_per_symbol(string type){
     }
 }
 
-vector<complex<double>> generate_known_preamble(int N) {
+vector<complex<double>> generate_shmidt_preamble(SharedData& sd){
+    int N = sd.ofdm.n_subcarriers;
     vector<complex<double>> freq(N, {0,0});
-    for (int k = 1; k < N/2; ++k) {
-        if (k % 2 == 0) {
-            freq[k] = {1.0, 0.0};
-            freq[N - k] = {1.0, 0.0};
+
+    for (int k = 1; k < N/2; ++k){
+        if (k % 2 == 0){
+            freq[k] = {1,0};
+            freq[N-k] = {1,0};
         }
     }
-    return freq;
+
+    vector<complex<double>> preamble = ofdm_modulator(freq, sd);
+    preamble.erase(preamble.begin(), preamble.begin() + sd.ofdm.cp_len);
+    
+    return preamble;
 }
 
-vector<complex<double>> preamble_generate(struct SharedData& sd){
-    return ofdm_modulator(generate_known_preamble(sd.ofdm.n_subcarriers), sd);
-}
+// vector<complex<double>> generate_shmidt_preamble(SharedData& sd){
+//     int N = sd.ofdm.n_subcarriers;
+//     vector<complex<double>> freq(N, {0,0});
+
+//     for (int k = 1; k < N/2; ++k){
+//         if (k % 2 == 0){
+//             freq[k] = {1,0};
+//             freq[N-k] = {1,0};
+//         }
+//     }
+
+//     return ofdm_modulator(freq, sd);
+// }
 
 vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, SharedData& sd) {
     const int N = sd.ofdm.n_subcarriers;
