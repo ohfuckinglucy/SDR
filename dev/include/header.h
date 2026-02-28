@@ -139,6 +139,9 @@ struct ofdm_conf{
     int num_pilots = 6;
     int pilot_spacing = 8;
 
+    int guard_dc = 4;
+    int guard_edge = 5;
+
     vector<int8_t>pilot_idx = {8, 16, 24, 40, 48, 56};
 };
 
@@ -223,10 +226,12 @@ int shmidt_sync(const vector<complex<double>>& signal, SharedData& sd);
 vector<int> ofdm_sym_sync(const vector<complex<double>>& signal, SharedData& sd);
 vector<complex<double>> cfo_est(const vector<complex<double>> &signal, SharedData &sd);
 vector<complex<double>> discard_cp(vector<complex<double>> signal, SharedData &sd);
-vector<complex<double>> ofdm_equalize(vector<complex<double>> signal, SharedData &sd);
+vector<complex<double>> ofdm_equalize(const vector<complex<double>>& signal, SharedData &sd);
 void reconfig_sdr(SharedData &sd, SDRConfig &config);
 void fftshift1D(fftw_complex* data, int N);
 vector<complex<double>> freq_sync(const vector<complex<double>> &signal, SharedData &sd);
+bool is_guard(int k, SharedData &sd);
+vector<complex<double>> cfo_sync_shmid_cox(const vector<complex<double>> &signal, SharedData &sd);
 
 void rx_back(SharedData& sd, SDRConfig &config);
 void tx_back(SharedData& sd, SDRConfig &config);

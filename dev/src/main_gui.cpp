@@ -219,6 +219,9 @@ int main() {
 
                     if (ImGui::Button("Update Pilots"))
                         update_pilots(ref(sd));
+
+                    ImGui::SliderInt("Guard DC", &sd.ofdm.guard_dc, 1, 20);
+                    ImGui::SliderInt("Guard Edge", &sd.ofdm.guard_edge, 1, 20);
                 }
 
                 ImGui::EndPopup();
@@ -371,6 +374,8 @@ int main() {
             ImGui::Text("Symbol Begin: %d", sd.ofdm.sym_begin);
             ImGui::Checkbox("Cut Begin", &sd.flags.cut_begin);
             ImGui::Checkbox("CFO Sync", &sd.flags.cfo_est_enabled);
+            ImGui::SameLine();
+            ImGui::Text("CFO Est: %f", sd.ofdm_sync.cfo_estimate);
             ImGui::Checkbox("EQ", &sd.flags.ofdm_eq_enabled);
         }
 

@@ -62,15 +62,31 @@ int bits_per_symbol(string type){
     }
 }
 
+bool is_guard(int k, SharedData &sd){
+    int N = sd.ofdm.n_subcarriers;
+
+    int nyq = N/2;
+
+    if (k < sd.ofdm.guard_dc || k >= N - sd.ofdm.guard_dc)
+        return true;
+
+    if (abs(k - nyq) <= sd.ofdm.guard_edge)
+        return true;
+
+    return false;
+}
+
 vector<complex<double>> generate_shmidt_preamble(SharedData& sd){
     int N = sd.ofdm.n_subcarriers;
     vector<complex<double>> freq(N, {0,0});
 
     for (int k = 1; k < N/2; ++k){
-        if (k % 2 == 0){
-            freq[k] = {1,0};
-            freq[N-k] = {1,0};
-        }
+        if (k % 2 != 0) continue;
+        if (is_guard(k, sd)) continue;
+        if (is_guard(N - k, sd)) continue;
+
+        freq[k] = {1,0};
+        freq[N-k] = {1,0};
     }
 
     vector<complex<double>> preamble = ofdm_modulator(freq, sd);
@@ -79,27 +95,17 @@ vector<complex<double>> generate_shmidt_preamble(SharedData& sd){
     return preamble;
 }
 
-// vector<complex<double>> generate_shmidt_preamble(SharedData& sd){
-//     int N = sd.ofdm.n_subcarriers;
-//     vector<complex<double>> freq(N, {0,0});
-
-//     for (int k = 1; k < N/2; ++k){
-//         if (k % 2 == 0){
-//             freq[k] = {1,0};
-//             freq[N-k] = {1,0};
-//         }
-//     }
-
-//     return ofdm_modulator(freq, sd);
-// }
-
 vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, SharedData& sd) {
     const int N = sd.ofdm.n_subcarriers;
     const int dc = 0;
     const int nyq = N / 2;
     const auto& pilots = sd.ofdm.pilot_idx;
 
-    int usable = N - 2 - pilots.size();
+    int usable = 0;
+    for (int k = 0; k < N; ++k)
+        if (!is_guard(k, sd))
+            usable++;
+    usable -= pilots.size();
     if (usable <= 0) return {};
 
     size_t num_ofdm = (symbols.size() + usable - 1) / usable;
@@ -112,7 +118,7 @@ vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, Sh
         vector<complex<double>> block(N, {0.0, 0.0});
 
         for (int k = 0; k < N; ++k) {
-            if (k == dc || k == nyq) continue;
+            if (is_guard(k, sd)) continue;
 
             if (find(pilots.begin(), pilots.end(), k) != pilots.end()) {
                 block[k] = {1.0, 0.0};
@@ -132,17 +138,25 @@ vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, Sh
 
 void update_pilots(SharedData& sd) {
     sd.ofdm.pilot_idx.clear();
+
     int N = sd.ofdm.n_subcarriers;
     int num = sd.ofdm.num_pilots;
     if (num <= 0 || N <= 0) return;
 
-    int usable = N - 2;
-    int step = usable / (num + 1);
+    vector<int> available;
+
+    for (int k = 0; k < N; ++k) {
+        if (!is_guard(k, sd))
+            available.push_back(k);
+    }
+
+    if (available.size() <= num) return;
+
+    int step = available.size() / (num + 1);
 
     for (int i = 0; i < num; ++i) {
-        int pos = 1 + (i + 1) * step;
-        if (pos != N/2 && pos < N)
-            sd.ofdm.pilot_idx.push_back(pos);
+        int pos = available[(i + 1) * step];
+        sd.ofdm.pilot_idx.push_back(pos);
     }
 }
 

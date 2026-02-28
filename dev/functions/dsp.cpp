@@ -199,7 +199,7 @@ int shmidt_sync(const vector<complex<double>>& signal, SharedData& sd){
         }
     }
 
-    return best_pos + N;
+    return best_pos;
 }
 
 vector<int> ofdm_sym_sync(const vector<complex<double>>& signal, SharedData& sd){
@@ -304,6 +304,30 @@ vector<complex<double>> discard_cp(vector<complex<double>> signal, SharedData &s
     return ofdm_signal;
 }
 
+vector<complex<double>> cfo_sync_shmid_cox(const vector<complex<double>> &signal, SharedData &sd){
+    int N = sd.ofdm.n_subcarriers;
+    int L = N / 2;
+
+    complex<double> corr = 0;
+
+    for (int k = 0; k < L; ++k) {
+        corr += signal[k] * conj(signal[k + L]);
+    }
+
+    double nu_hat = arg(corr) / M_PI;
+
+    sd.ofdm_sync.cfo_estimate = nu_hat;
+
+    vector<complex<double>> corrected_signal = signal;
+
+    for (size_t k = 0; k < corrected_signal.size(); ++k) {
+        double phase = -2.0 * M_PI * nu_hat * k / N;
+        corrected_signal[k] *= polar(1.0, phase);
+    }
+
+    return corrected_signal;
+}
+
 vector<complex<double>> cfo_est(const vector<complex<double>> &signal, SharedData &sd){
     int N = sd.ofdm.n_subcarriers;
     int CP = sd.ofdm.cp_len;
@@ -311,7 +335,7 @@ vector<complex<double>> cfo_est(const vector<complex<double>> &signal, SharedDat
 
     complex<double> corr = 0;
 
-    for (int n = 0; n < CP; n++) {
+    for (int n = sd.ofdm.sym_begin; n < sd.ofdm.sym_begin + CP; n++) {
         corr += conj(signal[n]) * signal[n + N];
     }
 
@@ -322,7 +346,7 @@ vector<complex<double>> cfo_est(const vector<complex<double>> &signal, SharedDat
     sd.ofdm_sync.cfo_estimate = delta_f;
 
     vector<complex<double>> corrected = signal;
-    for (size_t n = 0; n < signal.size(); n++) {
+    for (size_t n = sd.ofdm.sym_begin; n < signal.size(); n++) {
         double phase = -2 * M_PI * delta_f * n / fs;
         corrected[n] *= complex<double>(cos(phase), sin(phase));
     }
@@ -349,6 +373,8 @@ vector<complex<double>> freq_sync(const vector<complex<double>> &signal, SharedD
     double delta_teta = atan2(product.imag(), product.real());
     
     double delta_f = (delta_teta * sd.rx_bandwidth) / (N * M_PI);
+
+    sd.ofdm_sync.cfo_estimate = delta_f;
     
     vector<complex<double>> corrected_signal = signal;
 
@@ -360,67 +386,86 @@ vector<complex<double>> freq_sync(const vector<complex<double>> &signal, SharedD
     return corrected_signal;
 }
 
-vector<complex<double>> ofdm_equalize(vector<complex<double>> signal, SharedData &sd){
+vector<complex<double>> ofdm_equalize(const vector<complex<double>>& signal, SharedData &sd){
     vector<complex<double>> result;
 
     int N = sd.ofdm.n_subcarriers;
+    const auto& pilots = sd.ofdm.pilot_idx;
     complex<double> known_pilot = {1.0, 0.0};
 
-    auto pilots = sd.ofdm.pilot_idx;
+    if (pilots.empty())
+        return result;
+
+    vector<bool> is_pilot(N, false);
+    for (auto p : pilots)
+        if (p >= 0 && p < N)
+            is_pilot[p] = true;
 
     for (size_t i = 0; i + N <= signal.size(); i += N){
-        vector<complex<double>> sym(signal.begin() + i, signal.begin() + i + N);
-        vector<complex<double>> H(N, {0,0});
+        vector<complex<double>> sym(signal.begin() + i,
+                                    signal.begin() + i + N);
+
+        vector<complex<double>> H(N, {0.0, 0.0});
         vector<complex<double>> equalized(N);
 
-        for (size_t p = 0; p < pilots.size(); ++p){
-            int k = pilots[p];
+        for (auto k : pilots)
             H[k] = sym[k] / known_pilot;
-        }
 
-        for (size_t p = 0; p < pilots.size() - 1; ++p){
+        for (size_t p = 0; p + 1 < pilots.size(); ++p){
             int k1 = pilots[p];
-            int k2 = pilots[p+1];
+            int k2 = pilots[p + 1];
 
             complex<double> H1 = H[k1];
             complex<double> H2 = H[k2];
 
             for (int k = k1 + 1; k < k2; ++k){
+                if (is_guard(k, sd)) continue;
+
                 double alpha = double(k - k1) / double(k2 - k1);
                 H[k] = H1 + alpha * (H2 - H1);
             }
         }
 
         for (int k = 0; k < pilots.front(); ++k)
-            H[k] = H[pilots.front()];
+            if (!is_guard(k, sd))
+                H[k] = H[pilots.front()];
 
-        for (int k = pilots.back()+1; k < N; ++k)
-            H[k] = H[pilots.back()];
+        for (int k = pilots.back() + 1; k < N; ++k)
+            if (!is_guard(k, sd))
+                H[k] = H[pilots.back()];
 
         for (int k = 0; k < N; ++k){
+            if (is_guard(k, sd))
+                continue;
+
             if (abs(H[k]) > 1e-12)
                 equalized[k] = sym[k] / H[k];
             else
                 equalized[k] = sym[k];
         }
 
-        double phase = 0;
-        for (auto p : pilots)
-            phase += arg(sym[p]);
+        double phase = 0.0;
+        int pilot_count = 0;
 
-        phase /= pilots.size();
-
-        for (int k = 0; k < N; ++k)
-            equalized[k] *= exp(complex<double>(0, -phase));
-
-        vector<complex<double>> data_only;
-
-        for (int k = 0; k < N; ++k){
-            if (find(pilots.begin(), pilots.end(), k) == pilots.end())
-                data_only.push_back(equalized[k]);
+        for (auto p : pilots){
+            phase += arg(equalized[p]);
+            pilot_count++;
         }
 
-        result.insert(result.end(), data_only.begin(), data_only.end());
+        if (pilot_count > 0)
+            phase /= pilot_count;
+
+        for (int k = 0; k < N; ++k){
+            if (!is_guard(k, sd))
+                equalized[k] *= exp(complex<double>(0, -phase));
+        }
+
+        for (int k = 0; k < N; ++k){
+            if (is_guard(k, sd)) continue;
+            if (is_pilot[k]) continue;
+
+            result.push_back(equalized[k]);
+        }
     }
 
     return result;
