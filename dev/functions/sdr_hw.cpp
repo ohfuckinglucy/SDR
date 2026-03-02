@@ -1,23 +1,6 @@
-#include "header.h"
-#include "modulator.h"
+#include "sdr_hw.h"
 #include <iostream>
-#include <ctime>
 #include <cstring>
-#include <cmath>
-
-#define _USE_MATH_DEFINES
-
-template<typename T>
-void Show_Array(const char* title, T* array, int len) {
-    printf("%s: ", title);
-    for (int i = 0; i < len; i++) {
-        cout << array[i];
-    }
-    printf("\n");
-}
-
-template void Show_Array<int16_t>(const char*, int16_t*, int);
-template void Show_Array<complex<double>>(const char*, complex<double>*, int);
 
 SDRConfig SDRinit(char *usb, struct SharedData &sd) {
     SDRConfig config = {};
@@ -76,20 +59,6 @@ vector<SoapySDRKwargs> find_pluto_devices() {
     SoapySDRKwargs_clear(&args);
     
     return result;
-}
-
-void update_scope_buffer(vector<complex<double>>& scope_buffer, const vector<complex<double>>& new_samples, size_t SCOPE_DISPLAY_SIZE){
-    if (new_samples.size() >= SCOPE_DISPLAY_SIZE){
-        scope_buffer.assign(new_samples.end() - SCOPE_DISPLAY_SIZE, new_samples.end());
-    } else{
-        size_t shift = new_samples.size();
-        if (scope_buffer.size() < SCOPE_DISPLAY_SIZE)
-            scope_buffer.resize(SCOPE_DISPLAY_SIZE, {0.0, 0.0});
-        for (size_t i = 0; i < SCOPE_DISPLAY_SIZE - shift; ++i)
-            scope_buffer[i] = scope_buffer[i + shift];
-        for (size_t i = 0; i < shift; ++i)
-            scope_buffer[SCOPE_DISPLAY_SIZE - shift + i] = new_samples[i];
-    }
 }
 
 void reconfig_sdr(SharedData &sd, SDRConfig &config){

@@ -1,13 +1,10 @@
-#include "header.h"
+#include "common.h"
+#include "sdr_hw.h"
 #include "modulator.h"
+#include "ofdm_core.h"
+#include "sync_time.h"
+#include "sync_freq.h"
 #include <iostream>
-#include <chrono>
-#include <thread>
-#include <cmath>
-#include <vector>
-#include <cstdlib>
-#include <ctime>
-#include <atomic>
 
 const vector<int16_t> barker = {
     0,0,0,0,0,1,1,0,0,1,0,1,0
@@ -86,8 +83,8 @@ void rx_back(SharedData& sd, SDRConfig &config){
             tx_frame.clear();
             if (!frame.empty()) {
                 if (sd.flags.upsampling_enabled) {
-                    tx_frame = UpSampler(frame, sd.FormFilter.tx_l);
-                    if (sd.flags.tx_filter) filter(tx_frame.data(), tx_frame.size(), sd.FormFilter.tx_l);
+                    tx_frame = UpSampler(frame, sd.form_filter.tx_l);
+                    if (sd.flags.tx_filter) filter(tx_frame.data(), tx_frame.size(), sd.form_filter.tx_l);
                 } else {
                     tx_frame = move(frame);
                 }
@@ -208,12 +205,12 @@ void rx_back(SharedData& sd, SDRConfig &config){
             local_raw_buffer = ofdm_equalize(local_raw_buffer, sd);
         }
 
-        if (sd.flags.filter_enabled) filter(local_raw_buffer.data(), local_raw_buffer.size(), sd.FormFilter.rx_l);
+        if (sd.flags.filter_enabled) filter(local_raw_buffer.data(), local_raw_buffer.size(), sd.form_filter.rx_l);
 
         if (sd.gardner.sym_sync_enabled) {
             sym_sync(sd, local_raw_buffer);
             sd.flags.used_gardner = true;
-            for (size_t i = sd.gardner.ss_offset; i < local_raw_buffer.size(); i += sd.FormFilter.rx_l) {
+            for (size_t i = sd.gardner.ss_offset; i < local_raw_buffer.size(); i += sd.form_filter.rx_l) {
                 local_symbols.push_back(local_raw_buffer[i]);
             }
         } else {
@@ -252,7 +249,7 @@ void rx_back(SharedData& sd, SDRConfig &config){
     }
 }
 
-void tx_back(SharedData& sd, SDRConfig &config) {
+void tx_back(SharedData& sd, SDRConfig &config){
     string last_mod_type = "";
     int bits_size = 0;
 
@@ -311,8 +308,8 @@ void tx_back(SharedData& sd, SDRConfig &config) {
             tx_frame.clear();
             if (!frame.empty()) {
                 if (sd.flags.upsampling_enabled) {
-                    tx_frame = UpSampler(frame, sd.FormFilter.tx_l);
-                    if (sd.flags.tx_filter) filter(tx_frame.data(), tx_frame.size(), sd.FormFilter.tx_l);
+                    tx_frame = UpSampler(frame, sd.form_filter.tx_l);
+                    if (sd.flags.tx_filter) filter(tx_frame.data(), tx_frame.size(), sd.form_filter.tx_l);
                 } else {
                     tx_frame = move(frame);
                 }

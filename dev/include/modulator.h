@@ -1,13 +1,10 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <complex>
-#include <map>
-#include <iostream>
-#include <string>
-#include <vector>
+#ifndef MODULATION_H
+#define MODULATION_H
+#include "common.h"
 
-using namespace std;
-
+vector<complex<double>> UpSampler(const vector<complex<double>>& symbols, int L);
+void filter(complex<double>* symbols_ups, int len_symbols_ups, int L);
 vector<complex<double>> modulator(vector<int16_t> bits, int len_bits, string type);
-void update_pilots(struct SharedData& sd);
+int bits_per_symbol(string type);
+
+#endif

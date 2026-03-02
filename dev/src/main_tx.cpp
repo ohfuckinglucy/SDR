@@ -1,5 +1,8 @@
-#include "header.h"
+#include "common.h"
+#include "sdr_hw.h"
 #include "modulator.h"
+#include "ofdm_core.h"
+#include <thread>
 
 thread tx_thread;
 
@@ -126,10 +129,10 @@ int main() {
             sd.flags.tx_regenerate = true;
         }
 
-        int L = sd.FormFilter.tx_l;
+        int L = sd.form_filter.tx_l;
         if (ImGui::SliderInt("L", &L, 1, 100)) {
             lock_guard<mutex> lock(sd.mtx);
-            sd.FormFilter.tx_l = L;
+            sd.form_filter.tx_l = L;
         }
         bool upS = sd.flags.upsampling_enabled;
         if (ImGui::Checkbox("Upsampling", &upS)){

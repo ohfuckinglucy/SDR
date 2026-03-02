@@ -1,5 +1,8 @@
-#include "header.h"
+#include "common.h"
+#include "sdr_hw.h"
 #include "modulator.h"
+#include "ofdm_core.h"
+#include <thread>
 
 int main() {
     struct SDRConfig config = {};
@@ -9,7 +12,7 @@ int main() {
 
     SharedData sd;
 
-    sd.FormFilter.mf_delay.resize(sd.FormFilter.rx_l - 1, 0.0);
+    sd.form_filter.mf_delay.resize(sd.form_filter.rx_l - 1, 0.0);
 
     thread Back;
 
@@ -190,10 +193,10 @@ int main() {
                     sd.flags.tx_regenerate = true;
                 }
 
-                int L = sd.FormFilter.tx_l;
+                int L = sd.form_filter.tx_l;
                 if (ImGui::SliderInt("L", &L, 1, 100)) {
                     lock_guard<mutex> lock(sd.mtx);
-                    sd.FormFilter.tx_l = L;
+                    sd.form_filter.tx_l = L;
                 }
 
                 bool upsampling_enabled = sd.flags.upsampling_enabled;
@@ -279,23 +282,23 @@ int main() {
                 
                 if (!formfilter_enabled) {
                     sd.flags.mf_init = false;
-                    sd.FormFilter.mf_index = 0;
-                    sd.FormFilter.mf_sum = complex<double>(0.0);
-                    fill(sd.FormFilter.mf_delay.begin(), sd.FormFilter.mf_delay.end(), complex<double>(0.0));
+                    sd.form_filter.mf_index = 0;
+                    sd.form_filter.mf_sum = complex<double>(0.0);
+                    fill(sd.form_filter.mf_delay.begin(), sd.form_filter.mf_delay.end(), complex<double>(0.0));
                 }
             }
         }
 
-        int L = sd.FormFilter.rx_l;
+        int L = sd.form_filter.rx_l;
 
         if (formfilter_enabled){
             if (ImGui::SliderInt("Filter Length", &L, 2, 50)) {
                 lock_guard<mutex> lock(sd.mtx);
-                sd.FormFilter.rx_l = L;
-                sd.FormFilter.mf_delay.resize(L - 1, 0.0);
+                sd.form_filter.rx_l = L;
+                sd.form_filter.mf_delay.resize(L - 1, 0.0);
                 sd.flags.mf_init = false;
-                sd.FormFilter.mf_index = 0;
-                sd.FormFilter.mf_sum = 0.0;
+                sd.form_filter.mf_index = 0;
+                sd.form_filter.mf_sum = 0.0;
             }
         }
 
