@@ -379,7 +379,42 @@ int main() {
             ImGui::Checkbox("CFO Sync", &sd.flags.cfo_est_enabled);
             ImGui::SameLine();
             ImGui::Text("CFO Est: %f", sd.ofdm_sync.cfo_estimate);
+            ImGui::Checkbox("FFT", &sd.flags.ofdm_fft_enabled);
             ImGui::Checkbox("EQ", &sd.flags.ofdm_eq_enabled);
+        }
+
+        ImGui::End();
+
+        ImGui::Begin("First TX Bits", nullptr, ImGuiWindowFlags_NoCollapse);
+
+        int N_tx = min(50, static_cast<int>(sd.bits.size()) / 2);
+        if (N_tx > 0) {
+            ImGui::Text("Idx |   I   |   Q");
+            ImGui::Separator();
+            for (int i = 0; i < N_tx; ++i) {
+                int16_t I = sd.bits[2*i];
+                int16_t Q = sd.bits[2*i + 1];
+                ImGui::Text("%3d | %5d | %5d", i, I, Q);
+            }
+        } else {
+            ImGui::Text("No TX samples yet");
+        }
+
+        ImGui::End();
+
+        ImGui::Begin("First RX Bits", nullptr, ImGuiWindowFlags_NoCollapse);
+
+        int N_rx = min(50, static_cast<int>(sd.rx_bits.size()) / 2);
+        if (N_rx > 0) {
+            ImGui::Text("Idx |   I   |   Q");
+            ImGui::Separator();
+            for (int i = 0; i < N_rx; ++i) {
+                int16_t I = sd.rx_bits[2*i];
+                int16_t Q = sd.rx_bits[2*i + 1];
+                ImGui::Text("%3d | %5d | %5d", i, I, Q);
+            }
+        } else {
+            ImGui::Text("No RX samples yet");
         }
 
         ImGui::End();

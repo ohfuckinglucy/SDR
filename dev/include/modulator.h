@@ -4,7 +4,12 @@
 
 vector<complex<double>> UpSampler(const vector<complex<double>>& symbols, int L);
 void filter(complex<double>* symbols_ups, int len_symbols_ups, int L);
+
 vector<complex<double>> modulator(vector<int16_t> bits, int len_bits, string type);
+vector<int16_t> demodulator(const vector<complex<double>>& symbols, string type);
+
+vector<complex<double>> generate_header(uint64_t size, SharedData &sd);
+
 int bits_per_symbol(string type);
 
 #endif

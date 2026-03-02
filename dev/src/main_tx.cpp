@@ -214,13 +214,13 @@ int main() {
 
         ImGui::Begin("First bits", nullptr, ImGuiWindowFlags_NoCollapse);
 
-        int N = min(50, static_cast<int>(sd.last_tx_samples.size()) / 2);
+        int N = min(50, static_cast<int>(sd.bits.size()) / 2);
         if (N > 0) {
             ImGui::Text("Idx |   I   |   Q");
             ImGui::Separator();
             for (int i = 0; i < N; ++i) {
-                int16_t I = sd.last_tx_samples[2*i];
-                int16_t Q = sd.last_tx_samples[2*i + 1];
+                int16_t I = sd.bits[2*i];
+                int16_t Q = sd.bits[2*i + 1];
                 ImGui::Text("%3d | %5d | %5d", i, I, Q);
             }
         } else {

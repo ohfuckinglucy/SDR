@@ -72,6 +72,38 @@ vector<complex<double>> generate_shmidt_preamble(SharedData& sd){
     return preamble;
 }
 
+vector<complex<double>> generate_minn_preamble(SharedData& sd) {
+    int N = sd.ofdm.n_subcarriers;
+    if (N % 4 != 0) return {}; 
+
+    vector<complex<double>> freq(N, {0.0, 0.0});
+    
+    for (int k = 0; k < N; k += 4) {
+        if (is_guard(k, sd)) continue;
+        
+        int idx_group = (k / 4) % 4;
+        complex<double> val;
+        if (idx_group < 2) {
+            val = {1.0, 0.0}; 
+        } else {
+            val = {-1.0, 0.0}; 
+        }
+
+        freq[k] = val;
+        
+        if (k != 0 && k != N/2) {
+            freq[N - k] = conj(val);
+        }
+    }
+
+    vector<complex<double>> preamble = ofdm_modulator(freq, sd);
+    
+    if (preamble.size() > (size_t)sd.ofdm.cp_len) {
+        preamble.erase(preamble.begin(), preamble.begin() + sd.ofdm.cp_len);
+    }
+    return preamble;
+}
+
 int shmidt_sync(const vector<complex<double>>& signal, SharedData& sd){
     int N = sd.ofdm.n_subcarriers;
     int CP = sd.ofdm.cp_len;
@@ -100,6 +132,56 @@ int shmidt_sync(const vector<complex<double>>& signal, SharedData& sd){
 
         if (metric > max_metric){
             max_metric = metric;
+            best_pos = n;
+        }
+    }
+
+    return best_pos;
+}
+
+int minn_sync(const vector<complex<double>>& signal, SharedData& sd) {
+    int N = sd.ofdm.n_subcarriers;
+    int L = N / 4;
+
+    if (signal.size() < (size_t)N) return -1;
+
+    float max_metric = 0.0;
+    int best_pos = 0;
+
+    for (size_t n = 0; n <= signal.size() - N; ++n) {
+        
+        complex<double> P1 = 0.0;
+        complex<double> P2 = 0.0;
+        complex<double> P_cross = 0.0;
+
+        double energy = 0.0;
+
+        for (int k = 0; k < L; ++k) {
+            auto s1 = signal[n + k];
+            auto s2 = signal[n + k + L];
+            auto s3 = signal[n + k + 2*L];
+            auto s4 = signal[n + k + 3*L];
+
+            P1 += s1 * conj(s2);
+            P2 += s3 * conj(s4);
+            
+            complex<double> first_half = s1 + s2;
+            complex<double> second_half = s3 + s4;
+            
+            P_cross += first_half * conj(second_half);
+            
+            energy += norm(s1) + norm(s2) + norm(s3) + norm(s4);
+        }
+
+        double metric_val = norm(P_cross); 
+        
+        metric_val = norm(P_cross) / (energy * energy / 16.0);
+
+        sd.ofdm_sym_sync_corr[sd.ofdm_sym_sync_head] = metric_val;
+        sd.ofdm_sym_sync_head = (sd.ofdm_sym_sync_head + 1) % sd.SCOPE_SIZE;
+
+        if (metric_val > max_metric) {
+            max_metric = metric_val;
             best_pos = n;
         }
     }

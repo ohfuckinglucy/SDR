@@ -74,6 +74,57 @@ vector<complex<double>> modulator(vector<int16_t> bits, int len_bits, string typ
     }
 }
 
+vector<int16_t> demodulator(const vector<complex<double>>& symbols, string type){
+    vector<int16_t> bits;
+    
+    if (type == "QAM::2") {
+        bits.resize(symbols.size());
+        for (size_t i = 0; i < symbols.size(); ++i) {
+            double val = symbols[i].real(); 
+            bits[i] = (val > 0) ? 0 : 1;
+        }
+    } 
+    else if (type == "QAM::4") {
+        if (symbols.empty()) return bits;
+        
+        bits.resize(symbols.size() * 2);
+        for (size_t i = 0; i < symbols.size(); ++i) {
+            double I = symbols[i].real();
+            double Q = symbols[i].imag();
+            
+            bits[2*i]     = (I > 0) ? 0 : 1;
+            bits[2*i + 1] = (Q > 0) ? 0 : 1;
+        }
+    } 
+    else if (type == "QAM::16") {
+        if (symbols.empty()) return bits;
+        
+        bits.resize(symbols.size() * 4);
+        double threshold = 2.0 / sqrt(10.0);
+
+        for (size_t i = 0; i < symbols.size(); ++i) {
+            double I = symbols[i].real();
+            double Q = symbols[i].imag();
+
+            bits[4*i] = (I > 0) ? 0 : 1;
+            
+            bits[4*i + 2] = (abs(I) > threshold) ? 1 : 0;
+
+            bits[4*i + 1] = (Q > 0) ? 0 : 1;
+            bits[4*i + 3] = (abs(Q) > threshold) ? 1 : 0;
+        }
+    } 
+    else {
+        return {};
+    }
+
+    return bits;
+}
+
+vector<complex<double>> generate_header(uint64_t size, SharedData &sd){
+    
+}
+
 int bits_per_symbol(string type){
     if (type == "QAM::2"){
         return 1;

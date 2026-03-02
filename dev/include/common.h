@@ -90,6 +90,7 @@ struct Flags {
     bool cfo_est_enabled = false;
     bool data_est_enabled = false;
     bool ofdm_eq_enabled = false;
+    bool ofdm_fft_enabled = false;
     bool cut_begin = false;
     bool tx_regenerate = true;
     bool cp_time_sync = false;
@@ -156,6 +157,7 @@ struct SharedData {
     SyncResult ofdm_sync;
 
     vector<int16_t> bits;
+    vector<int16_t> rx_bits;
     vector<int16_t> tx_samples;
     vector<int16_t> last_tx_samples;
     vector<complex<double>> raw_buffer;

@@ -1,4 +1,5 @@
 #include "ofdm_core.h"
+#include "modulator.h"
 #include <algorithm>
 #include <fftw3.h>
 
@@ -114,8 +115,7 @@ vector<complex<double>> discard_cp(vector<complex<double>> signal, SharedData &s
         sym_blocks.clear();
         result.clear();
 
-        sym_blocks.insert(sym_blocks.begin(), signal.begin() + i, signal.begin() + i + N);
-        sym_blocks.erase(sym_blocks.begin(), sym_blocks.begin() + CP_len);
+        sym_blocks.insert(sym_blocks.begin(), signal.begin() + i + CP_len, signal.begin() + i + N);
 
         for (int j = 0; j < Pl_len; ++j) {
             in[j][0] = sym_blocks[j].real();
@@ -180,8 +180,7 @@ vector<complex<double>> ofdm_equalize(const vector<complex<double>>& signal, Sha
             is_pilot[p] = true;
 
     for (size_t i = 0; i + N <= signal.size(); i += N){
-        vector<complex<double>> sym(signal.begin() + i,
-                                    signal.begin() + i + N);
+        vector<complex<double>> sym(signal.begin() + i, signal.begin() + i + N);
 
         vector<complex<double>> H(N, {0.0, 0.0});
         vector<complex<double>> equalized(N);

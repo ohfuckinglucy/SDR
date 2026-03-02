@@ -138,33 +138,41 @@ vector<complex<double>> cfo_est(const vector<complex<double>> &signal, SharedDat
     return corrected;
 }
 
-vector<complex<double>> freq_sync(const vector<complex<double>> &signal, SharedData &sd){
-    complex<double> C_0 = 0;
-    complex<double> C_1 = 0;
-    
+vector<complex<double>> freq_sync(const vector<complex<double>> &signal, SharedData &sd) {
     int N = sd.ofdm.n_subcarriers;
-    int L = N / 2;
-    
-    vector<complex<double>> pss = generate_shmidt_preamble(sd);
-    
-    for (size_t n = 0; n < L; ++ n){
-        C_0 += signal[n] * conj(pss[n]);
-        C_1 += signal[n + L] * conj(pss[n]);
+    int L = N / 4;
+
+    if (signal.size() < size_t(2 * L)) return signal;
+
+    complex<double> corr_sum = 0.0;
+    double energy_sum = 0.0;
+
+    for (int n = 0; n < L; ++n) {
+        complex<double> s1 = signal[n];
+        complex<double> s2 = signal[n + L];
+        
+        corr_sum += s1 * conj(s2);
+        energy_sum += norm(s2);
     }
 
-    complex<double> product = C_1 * conj(C_0);
-    
-    double delta_teta = atan2(product.imag(), product.real());
-    
-    double delta_f = (delta_teta * sd.rx_bandwidth) / (N * M_PI);
+    double phase_diff = atan2(corr_sum.imag(), corr_sum.real());
 
+    if (phase_diff > M_PI) phase_diff -= 2*M_PI;
+    if (phase_diff < -M_PI) phase_diff += 2*M_PI;
+
+    double delta_f = (phase_diff * sd.rx_bandwidth) / (2.0 * M_PI * L);
+    
     sd.ofdm_sync.cfo_estimate = delta_f;
-    
-    vector<complex<double>> corrected_signal = signal;
 
-    for (int n = 0; n < signal.size(); n++) {
-        double correction_phase = -2 * M_PI * delta_f * n / sd.rx_bandwidth;
-        corrected_signal[n] *= complex<double>(cos(correction_phase), sin(correction_phase));
+    vector<complex<double>> corrected_signal = signal;
+    double phase_step = -2.0 * M_PI * delta_f / sd.rx_bandwidth;
+    
+    complex<double> current_phase_rotator(1.0, 0.0);
+    complex<double> step_rotator(cos(phase_step), sin(phase_step));
+
+    for (int n = 0; n < (int)corrected_signal.size(); ++n) {
+        corrected_signal[n] *= current_phase_rotator;
+        current_phase_rotator *= step_rotator; 
     }
 
     return corrected_signal;
