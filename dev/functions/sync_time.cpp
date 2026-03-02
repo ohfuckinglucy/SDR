@@ -148,11 +148,10 @@ int minn_sync(const vector<complex<double>>& signal, SharedData& sd) {
     float max_metric = 0.0;
     int best_pos = 0;
 
+    complex<double> P;
+
     for (size_t n = 0; n <= signal.size() - N; ++n) {
-        
-        complex<double> P1 = 0.0;
-        complex<double> P2 = 0.0;
-        complex<double> P_cross = 0.0;
+        P = 0.0;
 
         double energy = 0.0;
 
@@ -161,27 +160,24 @@ int minn_sync(const vector<complex<double>>& signal, SharedData& sd) {
             auto s2 = signal[n + k + L];
             auto s3 = signal[n + k + 2*L];
             auto s4 = signal[n + k + 3*L];
-
-            P1 += s1 * conj(s2);
-            P2 += s3 * conj(s4);
             
             complex<double> first_half = s1 + s2;
             complex<double> second_half = s3 + s4;
             
-            P_cross += first_half * conj(second_half);
+            P += first_half * conj(second_half);
             
             energy += norm(s1) + norm(s2) + norm(s3) + norm(s4);
         }
 
-        double metric_val = norm(P_cross); 
+        double metric= norm(P); 
         
-        metric_val = norm(P_cross) / (energy * energy / 16.0);
+        metric = norm(P) / (energy * energy / 16.0);
 
-        sd.ofdm_sym_sync_corr[sd.ofdm_sym_sync_head] = metric_val;
+        sd.ofdm_sym_sync_corr[sd.ofdm_sym_sync_head] = metric;
         sd.ofdm_sym_sync_head = (sd.ofdm_sym_sync_head + 1) % sd.SCOPE_SIZE;
 
-        if (metric_val > max_metric) {
-            max_metric = metric_val;
+        if (metric > max_metric) {
+            max_metric = metric;
             best_pos = n;
         }
     }

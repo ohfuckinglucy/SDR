@@ -176,12 +176,9 @@ void rx_back(SharedData& sd, SDRConfig &config){
             }
         }
         
-        
         if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin){
             local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.sig_begin);
         }
-
-        
 
         if (sd.flags.cfo_est_enabled){
             // local_raw_buffer = freq_sync(local_raw_buffer, sd);

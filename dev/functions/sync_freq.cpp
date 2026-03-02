@@ -125,7 +125,7 @@ vector<complex<double>> cfo_est(const vector<complex<double>> &signal, SharedDat
 
     double epsilon = arg(corr) / (2 * M_PI);
 
-    double delta_f = epsilon * fs / N;
+    double delta_f =  epsilon * fs / N;
 
     sd.ofdm_sync.cfo_estimate = delta_f;
 
