@@ -1,136 +1,207 @@
 #include "modulator.h"
+#include "ofdm_core.h"
+#include "sync_freq.h"
 #include <algorithm>
 
-vector<complex<double>> UpSampler(const vector<complex<double>>& symbols, int L){
+vector<complex<double>> UpSampler(const vector<complex<double>> &symbols, int L)
+{
     vector<complex<double>> symbols_ups(symbols.size() * L);
-    for (size_t i = 0; i < symbols.size()*L; i++){
+    for (size_t i = 0; i < symbols.size() * L; i++)
+    {
         symbols_ups[i] = {0.0, 0.0};
     }
-    for (size_t i = 0; i < symbols.size(); i ++){
-        symbols_ups[i*L] = symbols[i];
+    for (size_t i = 0; i < symbols.size(); i++)
+    {
+        symbols_ups[i * L] = symbols[i];
     }
 
     return symbols_ups;
 }
 
-void filter(complex<double>* symbols_ups, int len_symbols_ups, int L) {
-    if (L <= 1 || len_symbols_ups <= 0) return;
+void filter(complex<double> *symbols_ups, int len_symbols_ups, int L)
+{
+    if (L <= 1 || len_symbols_ups <= 0)
+        return;
 
     vector<complex<double>> impulse(L, 1.0);
     vector<complex<double>> sum(len_symbols_ups, 0.0);
 
-    for (int i = 0; i < len_symbols_ups; i++) {
-        for (int j = 0; j < L && (i - j) >= 0; j++) {
+    for (int i = 0; i < len_symbols_ups; i++)
+    {
+        for (int j = 0; j < L && (i - j) >= 0; j++)
+        {
             sum[i] += impulse[j] * symbols_ups[i - j];
         }
     }
 
-    for (int i = 0; i < len_symbols_ups; i++) {
+    for (int i = 0; i < len_symbols_ups; i++)
+    {
         symbols_ups[i] = sum[i];
     }
 }
 
-vector<complex<double>> modulator(vector<int16_t> bits, int len_bits, string type){
+vector<complex<double>> modulator(vector<int16_t> bits, int len_bits, string type)
+{
     double I, Q;
 
-    if (type == "QAM::2"){
+    if (type == "QAM::2")
+    {
         vector<complex<double>> symbols(len_bits);
-        for (int i = 0; i < len_bits; ++i){
-            I = 1 - 2*bits[i];
-            Q = 1 - 2*bits[i];
+        for (int i = 0; i < len_bits; ++i)
+        {
+            I = 1 - 2 * bits[i];
+            Q = 1 - 2 * bits[i];
 
-            symbols[i] = complex<double>(I, Q)/sqrt(2);
+            symbols[i] = complex<double>(I, Q) / sqrt(2);
         }
         return symbols;
-    } else if (type == "QAM::4"){
-        if (len_bits % 2 != 0) {
+    }
+    else if (type == "QAM::4")
+    {
+        if (len_bits % 2 != 0)
+        {
             perror("L_Bits % 2 != 0");
             exit(1);
         }
-        vector<complex<double>> symbols(len_bits/2);
-        for (int i = 0; i < len_bits/2; ++i){
-            I = 1 - 2*bits[2*i];
-            Q = 1 - 2*bits[2*i+1];
+        vector<complex<double>> symbols(len_bits / 2);
+        for (int i = 0; i < len_bits / 2; ++i)
+        {
+            I = 1 - 2 * bits[2 * i];
+            Q = 1 - 2 * bits[2 * i + 1];
 
-            symbols[i] = complex<double>(I, Q)/sqrt(2);
+            symbols[i] = complex<double>(I, Q) / sqrt(2);
         }
         return symbols;
-    } else if (type == "QAM::16"){
-        if (len_bits % 4 != 0){
+    }
+    else if (type == "QAM::16")
+    {
+        if (len_bits % 4 != 0)
+        {
             perror("L_Bits % 4 != 0");
             exit(1);
         }
-        vector<complex<double>> symbols(len_bits/4);
-        for (int i = 0; i < len_bits/4; ++i){
-            I = (1.0 - 2.0 * bits[4*i]) * (2.0 - (1.0 - 2.0 * bits[4*i + 2]));
-            Q = (1.0 - 2.0 * bits[4*i + 1]) * (2.0 - (1.0 - 2.0 * bits[4*i + 3]));
+        vector<complex<double>> symbols(len_bits / 4);
+        for (int i = 0; i < len_bits / 4; ++i)
+        {
+            I = (1.0 - 2.0 * bits[4 * i]) * (2.0 - (1.0 - 2.0 * bits[4 * i + 2]));
+            Q = (1.0 - 2.0 * bits[4 * i + 1]) * (2.0 - (1.0 - 2.0 * bits[4 * i + 3]));
 
-            symbols[i] = complex<double>(I, Q)/sqrt(10);
+            symbols[i] = complex<double>(I, Q) / sqrt(10);
         }
         return symbols;
-    } else {
+    }
+    else
+    {
         perror("unluck");
         exit(1);
     }
 }
 
-vector<int16_t> demodulator(const vector<complex<double>>& symbols, string type){
+vector<int16_t> demodulator(const vector<complex<double>> &symbols, string type)
+{
     vector<int16_t> bits;
-    
-    if (type == "QAM::2") {
+
+    if (type == "QAM::2")
+    {
         bits.resize(symbols.size());
-        for (size_t i = 0; i < symbols.size(); ++i) {
-            double val = symbols[i].real(); 
+        for (size_t i = 0; i < symbols.size(); ++i)
+        {
+            double val = symbols[i].real();
             bits[i] = (val > 0) ? 0 : 1;
         }
-    } 
-    else if (type == "QAM::4") {
-        if (symbols.empty()) return bits;
-        
+    }
+    else if (type == "QAM::4")
+    {
+        if (symbols.empty())
+            return bits;
+
         bits.resize(symbols.size() * 2);
-        for (size_t i = 0; i < symbols.size(); ++i) {
+        for (size_t i = 0; i < symbols.size(); ++i)
+        {
             double I = symbols[i].real();
             double Q = symbols[i].imag();
-            
-            bits[2*i]     = (I > 0) ? 0 : 1;
-            bits[2*i + 1] = (Q > 0) ? 0 : 1;
+
+            bits[2 * i] = (I > 0) ? 0 : 1;
+            bits[2 * i + 1] = (Q > 0) ? 0 : 1;
         }
-    } 
-    else if (type == "QAM::16") {
-        if (symbols.empty()) return bits;
-        
+    }
+    else if (type == "QAM::16")
+    {
+        if (symbols.empty())
+            return bits;
+
         bits.resize(symbols.size() * 4);
         double threshold = 2.0 / sqrt(10.0);
 
-        for (size_t i = 0; i < symbols.size(); ++i) {
+        for (size_t i = 0; i < symbols.size(); ++i)
+        {
             double I = symbols[i].real();
             double Q = symbols[i].imag();
 
-            bits[4*i] = (I > 0) ? 0 : 1;
-            
-            bits[4*i + 2] = (abs(I) > threshold) ? 1 : 0;
+            bits[4 * i] = (I > 0) ? 0 : 1;
 
-            bits[4*i + 1] = (Q > 0) ? 0 : 1;
-            bits[4*i + 3] = (abs(Q) > threshold) ? 1 : 0;
+            bits[4 * i + 2] = (abs(I) > threshold) ? 1 : 0;
+
+            bits[4 * i + 1] = (Q > 0) ? 0 : 1;
+            bits[4 * i + 3] = (abs(Q) > threshold) ? 1 : 0;
         }
-    } 
-    else {
+    }
+    else
+    {
         return {};
     }
 
     return bits;
 }
 
-vector<complex<double>> generate_header(uint64_t size, SharedData &sd){
-    
+vector<complex<double>> generate_header(size_t size, SharedData &sd){
+    uint16_t num = size;
+    std::vector<int16_t> binary;
+    for (int i = 15; i >= 0; --i){
+        auto bit = (num >> i) & 1;
+        binary.push_back(static_cast<int16_t>(bit));
+    }
+
+    vector<complex<double>> preamble_symbols = modulator(binary, binary.size(), "QAM::2");
+    vector<complex<double>> freq_blocks = insert_pilots(preamble_symbols, sd);
+    vector<complex<double>> ofdm_header = ofdm_modulator(freq_blocks, sd);
+
+    return ofdm_header;
 }
 
-int bits_per_symbol(string type){
-    if (type == "QAM::2"){
+uint16_t decode_header(const vector<complex<double>> signal, SharedData &sd){
+    vector<complex<double>> header_frame;
+
+    size_t N = sd.ofdm.n_subcarriers;
+    size_t CP = sd.ofdm.cp_len;
+
+    header_frame.insert(header_frame.begin(), signal.begin(), signal.begin() + N + CP);
+    header_frame = cfo_est(header_frame, sd);
+    header_frame = discard_cp(header_frame, sd);
+    header_frame = ofdm_equalize(header_frame, sd);
+
+    vector<int16_t> bits = demodulator(header_frame, "QAM::2");
+
+    uint16_t packet_len = 0;
+    for (size_t i = 0; i < 16 && i < bits.size(); ++i){
+        packet_len = (packet_len << 1) | (bits[i] & 1);
+    }
+
+    return packet_len;
+}
+
+int bits_per_symbol(string type)
+{
+    if (type == "QAM::2")
+    {
         return 1;
-    } else if( type == "QAM::4"){
+    }
+    else if (type == "QAM::4")
+    {
         return 2;
-    } else {
+    }
+    else
+    {
         return 4;
     }
 }

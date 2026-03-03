@@ -70,13 +70,13 @@ void rx_back(SharedData& sd, SDRConfig &config){
 
             if (sd.flags.ofdm_enabled_tx){
                 vector<complex<double>> preamble = generate_minn_preamble(sd);
-                // vector<complex<double>> header = generate_header(0, sd);
                 vector<complex<double>> freq_blocks = insert_pilots(symbols, sd);
                 vector<complex<double>> data_signal = ofdm_modulator(freq_blocks, sd);
-                // vector<complex<double>> preamble = generate_shmidt_preamble(sd);
+                vector<complex<double>> header = generate_header(data_signal.size(), sd);
 
                 frame.reserve(preamble.size() + data_signal.size());
                 frame.insert(frame.end(), preamble.begin(), preamble.end());
+                frame.insert(frame.end(), header.begin(), header.end());
                 frame.insert(frame.end(), data_signal.begin(), data_signal.end());
             } else {
                 frame = move(symbols);
@@ -100,6 +100,8 @@ void rx_back(SharedData& sd, SDRConfig &config){
         size_t num_blocks;
         if (sd.flags.loopback_flag && !tx_frame.empty()) {
             double scale = 12000.0;
+            if (sd.flags.ofdm_enabled_tx) scale = 120000.0;
+
             size_t frame_len = tx_frame.size();
             
             num_blocks = (frame_len + config.tx_mtu - 1) / config.tx_mtu;
@@ -200,6 +202,23 @@ void rx_back(SharedData& sd, SDRConfig &config){
 
         if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin){
             local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.n_subcarriers);
+        }
+
+        sd.ofdm_sync.packet_len = 0;
+        if(sd.flags.header_dec){
+            sd.ofdm_sync.packet_len = decode_header(local_raw_buffer, sd);
+
+            if (sd.ofdm.n_subcarriers + sd.ofdm.cp_len < local_raw_buffer.size()){
+                local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.n_subcarriers + sd.ofdm.cp_len);
+            }
+
+            if (sd.ofdm_sync.packet_len > 0){
+                if (sd.ofdm_sync.packet_len >= local_raw_buffer.size()){
+
+                } else {
+                    local_raw_buffer.erase(local_raw_buffer.begin() + sd.ofdm_sync.packet_len, local_raw_buffer.end());
+                }
+            }
         }
         
         if (sd.flags.cfo_est_enabled && sd.ofdm.sym_begin >= 0) local_raw_buffer = cfo_est(local_raw_buffer, sd);
@@ -302,13 +321,14 @@ void tx_back(SharedData& sd, SDRConfig &config){
             tx_frame.clear();
 
             if (sd.flags.ofdm_enabled_tx){
+                vector<complex<double>> preamble = generate_minn_preamble(sd);
                 vector<complex<double>> freq_blocks = insert_pilots(symbols, sd);
                 vector<complex<double>> data_signal = ofdm_modulator(freq_blocks, sd);
-                // vector<complex<double>> preamble = generate_shmidt_preamble(sd);
-                vector<complex<double>> preamble = generate_minn_preamble(sd);
+                vector<complex<double>> header = generate_header(data_signal.size(), sd);
 
                 frame.reserve(preamble.size() + data_signal.size());
                 frame.insert(frame.end(), preamble.begin(), preamble.end());
+                frame.insert(frame.end(), header.begin(), header.end());
                 frame.insert(frame.end(), data_signal.begin(), data_signal.end());
             } else {
                 frame = move(symbols);
@@ -335,6 +355,7 @@ void tx_back(SharedData& sd, SDRConfig &config){
 
             for (size_t i = 0; i < max_samples; ++i) {
                 double scale = 12000.0;
+                if (sd.flags.ofdm_enabled_tx) scale = 120000.0;
 
                 tx_samples[2*i] = static_cast<int16_t>(tx_frame[i].real() * scale);
                 tx_samples[2*i+1] = static_cast<int16_t>(tx_frame[i].imag() * scale);

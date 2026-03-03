@@ -94,6 +94,7 @@ struct Flags {
     bool cut_begin = false;
     bool tx_regenerate = true;
     bool cp_time_sync = false;
+    bool header_dec = false;
     int modulation_index = 0;
 };
 
@@ -143,6 +144,7 @@ struct ofdm_conf {
 struct SyncResult {
     int timing_offset;
     double cfo_estimate = 0;
+    uint16_t packet_len = 0;
 };
 
 struct SharedData {

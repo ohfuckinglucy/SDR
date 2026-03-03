@@ -376,6 +376,9 @@ int main() {
             ImGui::SameLine();
             ImGui::Text("Symbol Begin: %d", sd.ofdm.sym_begin);
             ImGui::Checkbox("Cut Begin", &sd.flags.cut_begin);
+            ImGui::Checkbox("Decode Header", &sd.flags.header_dec);
+            ImGui::SameLine();
+            ImGui::Text("Packet Len %d", sd.ofdm_sync.packet_len);
             ImGui::Checkbox("CFO Sync", &sd.flags.cfo_est_enabled);
             ImGui::SameLine();
             ImGui::Text("CFO Est: %f", sd.ofdm_sync.cfo_estimate);

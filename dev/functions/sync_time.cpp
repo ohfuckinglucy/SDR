@@ -182,6 +182,8 @@ int minn_sync(const vector<complex<double>>& signal, SharedData& sd) {
         }
     }
 
+    if (best_pos > 1920) best_pos = 0;
+
     return best_pos;
 }
 
