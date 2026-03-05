@@ -53,6 +53,7 @@ set(APP_SOURCES
     ${FUNC_DIR}/sdr_hw.cpp
     ${FUNC_DIR}/sync_freq.cpp
     ${FUNC_DIR}/sync_time.cpp
+    ${FUNC_DIR}/functions.cpp
     ${FUNC_DIR}/threads.cpp
 )
 
@@ -63,6 +64,7 @@ set(TX_SOURCES
     ${FUNC_DIR}/sdr_hw.cpp
     ${FUNC_DIR}/sync_freq.cpp
     ${FUNC_DIR}/sync_time.cpp
+    ${FUNC_DIR}/functions.cpp
     ${FUNC_DIR}/threads.cpp
 )
 

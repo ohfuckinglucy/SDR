@@ -23,6 +23,8 @@
 #include <atomic>
 #include <chrono>
 #include <fftw3.h>
+#include <queue>
+#include <condition_variable>
 
 #include <GL/glew.h>
 #include <SDL2/SDL.h>
@@ -34,7 +36,7 @@
 
 constexpr size_t N_BUFFERS = 4;
 constexpr long long TIMEOUT = 400000;
-constexpr long long TX_DELAY = 4000000;
+constexpr long long TX_DELAY = 8000000;
 
 using namespace std;
 
@@ -95,6 +97,7 @@ struct Flags {
     bool tx_regenerate = true;
     bool cp_time_sync = false;
     bool header_dec = false;
+    bool ofdm_config_changed = true;
     int modulation_index = 0;
 };
 
@@ -118,9 +121,19 @@ struct Fft_conf {
     vector<complex<double>> fft_buffer;
     vector<double> fft_magnitude;
     static constexpr size_t FFT_SIZE = 1024;
-    fftw_plan fft_plan = nullptr;
+
+    fftw_plan ofdm_fft_plan = nullptr;
+    fftw_plan ofdm_ifft_plan = nullptr;
+    fftw_plan spectrum_plan = nullptr;
+    
     fftw_complex* fft_in = nullptr;
     fftw_complex* fft_out = nullptr;
+    
+    fftw_complex* ifft_in = nullptr;
+    fftw_complex* ifft_out = nullptr;
+
+    fftw_complex* ofdm_rx_in = nullptr;
+    fftw_complex* ofdm_rx_out = nullptr;
 };
 
 struct device_finder {
@@ -147,6 +160,20 @@ struct SyncResult {
     uint16_t packet_len = 0;
 };
 
+struct Dbuf{
+    static constexpr size_t NUM_BUFFERS = 8;
+    vector<complex<double>> buffers[NUM_BUFFERS];
+    
+    atomic<size_t> write_idx{0};
+    atomic<size_t> read_idx{0};
+    atomic<size_t> filled_count{0};
+    
+    atomic<size_t> overwritten{0};
+    atomic<size_t> underrun{0};
+
+    size_t buffer_size = 1920;
+};
+
 struct SharedData {
     mutex mtx;
     TED_gardner gardner;
@@ -157,6 +184,7 @@ struct SharedData {
     device_finder dev_f;
     ofdm_conf ofdm;
     SyncResult ofdm_sync;
+    Dbuf pipe;
 
     vector<int16_t> bits;
     vector<int16_t> rx_bits;
@@ -196,8 +224,12 @@ struct SharedData {
 
 void update_scope_buffer(vector<complex<double>>& scope_buffer, const vector<complex<double>>& new_samples, size_t SCOPE_DISPLAY_SIZE);
 bool is_guard(int k, SharedData &sd);
+void signal_generate(SharedData& sd, SDRConfig &config);
+void rebuild_ofdm_plans(SharedData& sd);
 
 void rx_back(SharedData& sd, SDRConfig &config);
 void tx_back(SharedData& sd, SDRConfig &config);
+
+void SDRStream(SharedData& sd, SDRConfig &config);
 
 #endif

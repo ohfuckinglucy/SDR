@@ -64,30 +64,24 @@ vector<complex<double>> ofdm_modulator(const vector<complex<double>>& freq_symbo
     if (freq_symbols.size() % N != 0) return {};
 
     vector<complex<double>> ofdm_signal;
-    fftw_complex* in = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * N);
-    fftw_complex* out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * N);
-    fftw_plan p = fftw_plan_dft_1d(N, in, out, FFTW_BACKWARD, FFTW_ESTIMATE);
+    ofdm_signal.reserve(freq_symbols.size() + (freq_symbols.size()/N)*CP);
 
     size_t ptr = 0;
     while (ptr < freq_symbols.size()) {
         for (int i = 0; i < N; ++i) {
-            in[i][0] = freq_symbols[ptr].real();
-            in[i][1] = freq_symbols[ptr].imag();
+            sd.fft.ifft_in[i][0] = freq_symbols[ptr].real();
+            sd.fft.ifft_in[i][1] = freq_symbols[ptr].imag();
             ptr++;
         }
 
-        fftw_execute(p);
+        fftw_execute(sd.fft.ofdm_ifft_plan);
 
         vector<complex<double>> time_sym(N);
-        for (int i = 0; i < N; ++i) time_sym[i] = {out[i][0] / N, out[i][1] / N};
+        for (int i = 0; i < N; ++i) time_sym[i] = {sd.fft.ifft_out[i][0] / N, sd.fft.ifft_out[i][1] / N};
 
         time_sym.insert(time_sym.begin(), time_sym.end() - CP, time_sym.end());
         ofdm_signal.insert(ofdm_signal.end(), time_sym.begin(), time_sym.end());
     }
-
-    fftw_destroy_plan(p);
-    fftw_free(in);
-    fftw_free(out);
     
     return ofdm_signal;
 }
@@ -106,10 +100,7 @@ vector<complex<double>> discard_cp(vector<complex<double>> signal, SharedData &s
     if (begin < 0 || begin + N > (int)signal.size())
         return ofdm_signal;
 
-    fftw_complex *in = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * Pl_len);
-    fftw_complex *out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * Pl_len);
-
-    fftw_plan p = fftw_plan_dft_1d(Pl_len, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
+    ofdm_signal.reserve(signal.size() / N * Pl_len);
 
     for (size_t i = begin; i + N <= signal.size(); i += N){
         sym_blocks.clear();
@@ -118,24 +109,18 @@ vector<complex<double>> discard_cp(vector<complex<double>> signal, SharedData &s
         sym_blocks.insert(sym_blocks.begin(), signal.begin() + i + CP_len, signal.begin() + i + N);
 
         for (int j = 0; j < Pl_len; ++j) {
-            in[j][0] = sym_blocks[j].real();
-            in[j][1] = sym_blocks[j].imag();
+            sd.fft.ofdm_rx_in[j][0] = sym_blocks[j].real();
+            sd.fft.ofdm_rx_in[j][1] = sym_blocks[j].imag();
         }
 
-        fftw_execute(p);
-
-        result.resize(Pl_len);
+        fftw_execute(sd.fft.ofdm_fft_plan);
 
         for (int j = 0; j < Pl_len; ++j) {
-            result[j] = { out[j][0] / Pl_len, out[j][1] / Pl_len };
+            double re = sd.fft.ofdm_rx_out[j][0] / Pl_len;
+            double im = sd.fft.ofdm_rx_out[j][1] / Pl_len;
+            ofdm_signal.emplace_back(re, im);
         }
-
-        ofdm_signal.insert(ofdm_signal.end(), result.begin(), result.end());
     }
-
-    fftw_destroy_plan(p);
-    fftw_free(in);
-    fftw_free(out);
 
     return ofdm_signal;
 }

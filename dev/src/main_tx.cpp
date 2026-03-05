@@ -9,9 +9,14 @@ thread tx_thread;
 int main() {
     SharedData sd;
 
+    sd.flags.loopback_flag = true;
+
     struct SDRConfig config = {};
     auto sdr_devices = find_pluto_devices();
     int selected_device_index = 0;
+
+    sd.flags.ofdm_config_changed = true;
+    rebuild_ofdm_plans(sd);
 
     SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER);
 
@@ -58,6 +63,22 @@ int main() {
                 running = false;
         }
 
+        if (sd.flags.ofdm_config_changed) {
+            if (sd.flags.g_running) {
+                sd.flags.g_running = false;
+
+                if (tx_thread.joinable()) tx_thread.join();
+                
+                rebuild_ofdm_plans(sd);
+                
+                sd.flags.g_running = true;
+
+                tx_thread = thread(SDRStream, ref(sd), ref(config));
+            } else {
+                rebuild_ofdm_plans(sd);
+            }
+        }
+
         sdr_devices = find_pluto_devices();
 
         ImGui_ImplOpenGL3_NewFrame();
@@ -99,12 +120,29 @@ int main() {
         if (tx_mode >= 3){
             ImGui::SeparatorText("OFDM Settings");
 
-            ImGui::SliderInt("Symbol Len", &sd.ofdm.n_subcarriers, 1, 128);
-            ImGui::SliderInt("Prefix Len", &sd.ofdm.cp_len, 1, sd.ofdm.n_subcarriers/4);
+            int old_n = sd.ofdm.n_subcarriers;
+
+            if (ImGui::SliderInt("Symbol Len", &sd.ofdm.n_subcarriers, 1, 128)){
+                std::lock_guard<std::mutex> lock(sd.mtx);
+                if (sd.ofdm.n_subcarriers != old_n) {
+                    sd.flags.ofdm_config_changed = true; 
+                }
+            }
+
+            int old_cp = sd.ofdm.cp_len;
+
+            if (ImGui::SliderInt("Prefix Len", &sd.ofdm.cp_len, 1, sd.ofdm.n_subcarriers/4)){
+                if (sd.ofdm.cp_len != old_cp) {
+                    sd.flags.ofdm_config_changed = true; 
+                }
+            }
             ImGui::SliderInt("Num Pilots", &sd.ofdm.num_pilots, 1, 20);
 
             if (ImGui::Button("Update Pilots"))
                 update_pilots(ref(sd));
+
+            ImGui::SliderInt("Guard DC", &sd.ofdm.guard_dc, 1, 20);
+            ImGui::SliderInt("Guard Edge", &sd.ofdm.guard_edge, 1, 20);
         }
 
         if (ImGui::Combo("TX Mode", &tx_mode, tx_modes, IM_ARRAYSIZE(tx_modes))) {
@@ -161,7 +199,7 @@ int main() {
                     config = SDRinit(const_cast<char*>(sd.dev_f.selected_uri.c_str()), sd);
                     if (config.sdr) {
                         sd.flags.g_running = true;
-                        tx_thread = thread(tx_back, ref(sd), ref(config));
+                        tx_thread = thread(SDRStream, ref(sd), ref(config));
                     }
                 }
             }

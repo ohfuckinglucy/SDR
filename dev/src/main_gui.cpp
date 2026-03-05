@@ -14,23 +14,23 @@ int main() {
 
     sd.form_filter.mf_delay.resize(sd.form_filter.rx_l - 1, 0.0);
 
-    thread Back;
+    thread Back, Stream;
 
-    sd.fft.fft_in = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * sd.fft.FFT_SIZE);
-    sd.fft.fft_out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * sd.fft.FFT_SIZE);
+    bool Costas_enabled = false;
+    sd.flags.ofdm_config_changed = true;
 
-    sd.fft.fft_plan = fftw_plan_dft_1d(
-        sd.fft.FFT_SIZE,
-        sd.fft.fft_in,
-        sd.fft.fft_out,
-        FFTW_FORWARD,
+    sd.fft.fft_in = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * sd.fft.FFT_SIZE);
+    sd.fft.fft_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * sd.fft.FFT_SIZE);
+
+    sd.fft.spectrum_plan = fftw_plan_dft_1d(
+        sd.fft.FFT_SIZE, 
+        sd.fft.fft_in, 
+        sd.fft.fft_out, 
+        FFTW_FORWARD, 
         FFTW_ESTIMATE
     );
 
-    sd.fft.fft_buffer.resize(sd.fft.FFT_SIZE);
-    sd.fft.fft_magnitude.resize(sd.fft.FFT_SIZE);
-
-    bool Costas_enabled = false;
+    rebuild_ofdm_plans(sd);
 
     SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER);
 
@@ -64,7 +64,6 @@ int main() {
     ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init("#version 330");
 
-
     ImVec2 plotsize(1600, 600);
 
     bool running = true;
@@ -75,6 +74,24 @@ int main() {
             if (event.type == SDL_QUIT) {
                 running = false;
                 sd.flags.g_running = false;
+            }
+        }
+
+        if (sd.flags.ofdm_config_changed) {
+            if (sd.flags.g_running) {
+                sd.flags.g_running = false;
+
+                if (Back.joinable()) Back.join();
+                if (Stream.joinable()) Stream.join();
+                
+                rebuild_ofdm_plans(sd);
+                
+                sd.flags.g_running = true;
+
+                Back = thread(rx_back, ref(sd), ref(config));
+                Stream = thread(SDRStream, ref(sd), ref(config));
+            } else {
+                rebuild_ofdm_plans(sd);
             }
         }
 
@@ -128,19 +145,26 @@ int main() {
 
                 sd.flags.g_running = true;
                 Back = thread(rx_back, ref(sd), ref(config));
+                Stream = thread(SDRStream, ref(sd), ref(config));
             } else {
                 if (ImGui::MenuItem("Stop TX", nullptr, true, sd.flags.g_running)) {
-                sd.flags.g_running = false;
-                if (Back.joinable()) {
-                    Back.join();
+                    sd.flags.g_running = false;
+                    if (Back.joinable()) {
+                        Back.join();
+                    }
+                    if (Stream.joinable()){
+                        Stream.join();
+                    }
                 }
-            }
             }
 
             if (ImGui::MenuItem("Exit", nullptr, false, true)) {
                 sd.flags.g_running = false;
                 if (Back.joinable()) {
                     Back.join();
+                }
+                if (Stream.joinable()){
+                    Stream.join();
                 }
                 running = false;
             }
@@ -216,8 +240,22 @@ int main() {
                 if (tx_mode >= 3){
                     ImGui::SeparatorText("OFDM Settings");
 
-                    ImGui::SliderInt("Symbol Len", &sd.ofdm.n_subcarriers, 1, 128);
-                    ImGui::SliderInt("Prefix Len", &sd.ofdm.cp_len, 1, sd.ofdm.n_subcarriers/4);
+                    int old_n = sd.ofdm.n_subcarriers;
+
+                    if (ImGui::SliderInt("Symbol Len", &sd.ofdm.n_subcarriers, 1, 128)){
+                        std::lock_guard<std::mutex> lock(sd.mtx);
+                        if (sd.ofdm.n_subcarriers != old_n) {
+                            sd.flags.ofdm_config_changed = true; 
+                        }
+                    }
+
+                    int old_cp = sd.ofdm.cp_len;
+
+                    if (ImGui::SliderInt("Prefix Len", &sd.ofdm.cp_len, 1, sd.ofdm.n_subcarriers/4)){
+                        if (sd.ofdm.cp_len != old_cp) {
+                            sd.flags.ofdm_config_changed = true; 
+                        }
+                    }
                     ImGui::SliderInt("Num Pilots", &sd.ofdm.num_pilots, 1, 20);
 
                     if (ImGui::Button("Update Pilots"))
@@ -468,6 +506,37 @@ int main() {
 
         ImGui::End();
 
+        ImGui::Begin("TX Samples",
+            nullptr,
+            ImGuiWindowFlags_NoTitleBar
+        );
+
+        if (ImPlot::BeginPlot("TX Scope", ImVec2(-1, 600))) {
+            vector<double> scope_I, scope_Q;
+            {
+                lock_guard<mutex> lock(sd.mtx);
+                
+                scope_I.reserve(sd.tx_samples.size() / 2);
+                scope_Q.reserve(sd.tx_samples.size() / 2);
+                
+                for (size_t i = 0; i < sd.tx_samples.size() / 2; ++i) {
+                    scope_I.push_back(sd.tx_samples[2 * i]);
+                    scope_Q.push_back(sd.tx_samples[2 * i + 1]);
+                }
+            }
+                        
+            if (!scope_I.empty()) {
+                ImPlot::SetupAxesLimits(0, scope_I.size(), -20000, 20000);
+                ImPlot::PlotLine("I", scope_I.data(), scope_I.size());
+                ImPlot::PlotLine("Q", scope_Q.data(), scope_Q.size());
+            } else {
+                ImPlot::SetupAxesLimits(0, 100, -20000, 20000);
+            }
+            ImPlot::EndPlot();
+        }
+
+        ImGui::End();
+
         ImGui::Begin("FFT",
             nullptr,
             ImGuiWindowFlags_NoTitleBar
@@ -566,11 +635,12 @@ int main() {
         config.sdr = nullptr;
     }
 
-    if (sd.fft.fft_plan) {
-        fftw_destroy_plan(sd.fft.fft_plan);
-        fftw_free(sd.fft.fft_in);
-        fftw_free(sd.fft.fft_out);
-    }
+    if (sd.fft.ofdm_ifft_plan) fftw_destroy_plan(sd.fft.ofdm_ifft_plan);
+    if (sd.fft.ifft_in) fftw_free(sd.fft.ifft_in);
+    if (sd.fft.ifft_out) fftw_free(sd.fft.ifft_out);
+    if (sd.fft.ofdm_fft_plan) fftw_destroy_plan(sd.fft.ofdm_fft_plan);
+    if (sd.fft.ofdm_rx_in) fftw_free(sd.fft.ofdm_rx_in);
+    if (sd.fft.ofdm_rx_out) fftw_free(sd.fft.ofdm_rx_out);
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL2_Shutdown();
