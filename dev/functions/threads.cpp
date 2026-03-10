@@ -10,7 +10,13 @@ void rx_back(SharedData& sd, SDRConfig &config){
     vector<complex<double>> local_symbols;
     vector<double> local_fft_mag(sd.fft.FFT_SIZE);
 
+    chrono::high_resolution_clock::time_point t_start, t_end;
+
+    long long total_duration_us = 0;
+    int frame_count = 0;
+
     while (sd.flags.g_running){
+        t_start = chrono::high_resolution_clock::now();
         string mod_type;
         if (sd.flags.modulation_index == 0) mod_type = "QAM::2";
         else if (sd.flags.modulation_index == 2) mod_type = "QAM::16";
@@ -25,7 +31,9 @@ void rx_back(SharedData& sd, SDRConfig &config){
 
         size_t current_read = sd.pipe.read_idx.load(memory_order_relaxed);
 
-        vector<complex<double>> local_raw_buffer = std::move(sd.pipe.buffers[current_read]);
+        lock_guard<mutex> lock(sd.pipe.buf_mutex[current_read]);
+
+        vector<complex<double>> local_raw_buffer = move(sd.pipe.buffers[current_read]);
         sd.pipe.buffers[current_read].clear();
 
         size_t next_read = (current_read + 1) % Dbuf::NUM_BUFFERS;
@@ -114,143 +122,50 @@ void rx_back(SharedData& sd, SDRConfig &config){
 
         {
             lock_guard<mutex> lock(sd.mtx);
-            sd.raw_buffer = std::move(local_raw_buffer);
+            sd.raw_buffer = move(local_raw_buffer);
             sd.rx_bits = demodulator(sd.raw_buffer, mod_type);
-            sd.symbols = std::move(local_symbols);
+            sd.symbols = move(local_symbols);
             sd.fft.fft_magnitude = local_fft_mag;
         }
-    }
-}
 
-void tx_back(SharedData& sd, SDRConfig &config){
-    string last_mod_type = "";
-    int bits_size = 0;
+        t_end = chrono::high_resolution_clock::now();
 
-    size_t tx_sent_idx = 0;
-    bool tx_active = false;
+        auto duration = chrono::duration_cast<chrono::microseconds>(t_end - t_start).count();
+        total_duration_us += duration;
+        frame_count++;
 
-    vector<complex<double>> tx_frame;
-    vector<int16_t> tx_samples(2 * config.tx_mtu * N_BUFFERS, 0);
-    
-    while (sd.flags.g_running) {
-        static bool bits_initialized = false;
-        
-        reconfig_sdr(ref(sd), ref(config));
-        
-        string mod_type;
-        if (sd.flags.modulation_index == 0) mod_type = "QAM::2";
-        else if (sd.flags.modulation_index == 2) mod_type = "QAM::16";
-        else mod_type = "QAM::4";
-        
-        if (sd.flags.tx_regenerate){
-            vector<complex<double>> frame; 
-            int bits_ps = bits_per_symbol(mod_type);
-
-            size_t total_symbols = sd.tx_symbol_count;
-
-            if (sd.flags.ofdm_enabled_tx) {
-                int data_per_symbol =
-                    sd.ofdm.n_subcarriers - sd.ofdm.pilot_idx.size();
-
-                int ofdm_blocks =
-                    ceil((double)total_symbols / data_per_symbol);
-
-                total_symbols = ofdm_blocks * data_per_symbol;
-            }
-
-            sd.bits.resize(total_symbols * bits_ps);
-            for (auto &b : sd.bits)
-                b = rand() % 2;
-
-            vector<complex<double>> symbols = modulator(sd.bits, sd.bits.size(), mod_type);
-
-            tx_frame.clear();
-
-            if (sd.flags.ofdm_enabled_tx){
-                vector<complex<double>> preamble = generate_minn_preamble(sd);
-                vector<complex<double>> freq_blocks = insert_pilots(symbols, sd);
-                vector<complex<double>> data_signal = ofdm_modulator(freq_blocks, sd);
-                vector<complex<double>> header = generate_header(data_signal.size(), sd);
-
-                frame.reserve(preamble.size() + data_signal.size());
-                frame.insert(frame.end(), preamble.begin(), preamble.end());
-                frame.insert(frame.end(), header.begin(), header.end());
-                frame.insert(frame.end(), data_signal.begin(), data_signal.end());
-            } else {
-                frame = move(symbols);
-            }
-
-            tx_frame.clear();
-            if (!frame.empty()) {
-                if (sd.flags.upsampling_enabled) {
-                    tx_frame = UpSampler(frame, sd.form_filter.tx_l);
-                    if (sd.flags.tx_filter) filter(tx_frame.data(), tx_frame.size(), sd.form_filter.tx_l);
-                } else {
-                    tx_frame = move(frame);
-                }
-            }
-
-            tx_sent_idx = 0;
-            tx_active = !tx_frame.empty();
-            sd.flags.tx_regenerate = false;
-        }
-
-        fill(tx_samples.begin(), tx_samples.end(), 0);
-
-            size_t max_samples = min(tx_frame.size(), (size_t)(N_BUFFERS * config.tx_mtu));
-
-            for (size_t i = 0; i < max_samples; ++i) {
-                double scale = 12000.0;
-                if (sd.flags.ofdm_enabled_tx) scale = 120000.0;
-
-                tx_samples[2*i] = static_cast<int16_t>(tx_frame[i].real() * scale);
-                tx_samples[2*i+1] = static_cast<int16_t>(tx_frame[i].imag() * scale);
-            }
-
-        {
-            sd.last_tx_samples.clear();
-            int N_show = min(100, static_cast<int>(tx_samples.size()));
-            sd.last_tx_samples.assign(tx_samples.begin(), tx_samples.begin() + N_show);
-        }
-
-        size_t total = tx_samples.size() / 2;
-        size_t sent = 0;
-
-        while (sent < total) {
-            size_t to_send = min(static_cast<size_t>(config.tx_mtu), total - sent);
-            const void* tx_buffs[] = { tx_samples.data()};
-            void* rx_buffs[] = { config.rx_buffer };
-
-            int flags = 0;
-            long long timeNs = 0;
-
-            int sr = SoapySDRDevice_readStream(config.sdr, config.rxStream, rx_buffs, config.rx_mtu, &flags, &timeNs, TIMEOUT);
-
-            long long tx_time = timeNs + TX_DELAY;
-            flags = SOAPY_SDR_HAS_TIME;
-
-            SoapySDRDevice_writeStream(config.sdr, config.txStream, tx_buffs, config.rx_mtu, &flags, tx_time, TIMEOUT);
-
-            sent += to_send;
-        }
+        sd.avg_time = (double)total_duration_us / frame_count;
+        total_duration_us = 0;
+        frame_count = 0;
     }
 }
 
 void SDRStream(SharedData& sd, SDRConfig &config){
-    if (!config.sdr || !config.rxStream) {
+    if (!config.sdr || !config.rxStream || !config.rx_buffer) {
         cerr << "ERROR: SDR config!" << endl;
         sd.flags.g_running = false;
         return;
     }
 
-    for(size_t i=0; i<Dbuf::NUM_BUFFERS; ++i)
-        sd.pipe.buffers[i].reserve(sd.pipe.buffer_size);
+    static bool buffers_initialized = false;
+    if (!buffers_initialized) {
+        for(size_t i = 0; i < Dbuf::NUM_BUFFERS; ++i) {
+            sd.pipe.buffers[i].reserve(sd.pipe.buffer_size);
+            sd.pipe.buffers[i].clear();
+        }
+        buffers_initialized = true;
+    }
 
     size_t blk = 0;
 
+    chrono::high_resolution_clock::time_point t_start, t_end;
+    long long total_duration_us = 0;
+    int frame_count = 0;
+
     while (sd.flags.g_running){
+        t_start = chrono::high_resolution_clock::now();
+
         reconfig_sdr(ref(sd), ref(config));
-        
         signal_generate(ref(sd), ref(config));
         
         size_t frame_len = sd.tx_samples.size() / 2;
@@ -275,29 +190,53 @@ void SDRStream(SharedData& sd, SDRConfig &config){
             ++ blk;
         }
 
-        size_t current_write = sd.pipe.write_idx.load(memory_order_relaxed);
+        size_t current_write = sd.pipe.write_idx.load(memory_order_acquire);
+
+        if (current_write >= Dbuf::NUM_BUFFERS) {
+            cerr << "[SDRStream] CORRUPTED: write_idx=" << current_write << ", resetting!" << endl;
+            sd.pipe.write_idx.store(0, memory_order_release);
+            sd.pipe.filled_count.store(0, memory_order_release);
+            continue;
+        }
+
         size_t current_filled = sd.pipe.filled_count.load(memory_order_acquire);
 
         if (current_filled >= Dbuf::NUM_BUFFERS) {
-            size_t old_read = sd.pipe.read_idx.load(memory_order_relaxed);
+            size_t old_read = sd.pipe.read_idx.load(memory_order_acquire);
             size_t new_read = (old_read + 1) % Dbuf::NUM_BUFFERS;
             sd.pipe.read_idx.store(new_read, memory_order_release);
-            sd.pipe.filled_count.store(Dbuf::NUM_BUFFERS - 1, memory_order_release);
+            sd.pipe.filled_count.fetch_sub(1, memory_order_acq_rel);
+            sd.pipe.overwritten.fetch_add(1, memory_order_relaxed);
         }
 
-        auto& buf = sd.pipe.buffers[current_write];
+        auto &buf = sd.pipe.buffers[current_write];
+        lock_guard<mutex> lock(sd.pipe.buf_mutex[current_write]);
+
         buf.clear();
+
         int16_t* data_ptr = static_cast<int16_t*>(config.rx_buffer);
+        if (!data_ptr) continue;
+
         for (int i = 0; i < sr; ++i) {
-            buf.emplace_back((double)data_ptr[2*i], (double)data_ptr[2*i+1]);
+            if (2*i + 1 >= config.rx_mtu * 2) break;
+            buf.emplace_back(
+                static_cast<double>(data_ptr[2*i]), 
+                static_cast<double>(data_ptr[2*i+1])
+            );
         }
 
         size_t next_write = (current_write + 1) % Dbuf::NUM_BUFFERS;
         sd.pipe.write_idx.store(next_write, memory_order_release);
+        sd.pipe.filled_count.fetch_add(1, memory_order_acq_rel);
 
-        size_t new_filled = sd.pipe.filled_count.fetch_add(1, memory_order_acq_rel) + 1;
-        if (new_filled > Dbuf::NUM_BUFFERS) {
-            sd.pipe.filled_count.store(Dbuf::NUM_BUFFERS, memory_order_release);
-        }
+        t_end = chrono::high_resolution_clock::now();
+
+        auto duration = chrono::duration_cast<chrono::microseconds>(t_end - t_start).count();
+        total_duration_us += duration;
+        frame_count++;
+
+        sd.avg_stream_time = (double)total_duration_us / frame_count;
+        total_duration_us = 0;
+        frame_count = 0;
     }
 }

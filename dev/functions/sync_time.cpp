@@ -3,8 +3,7 @@
 #include <cmath>
 #include <algorithm>
 
-void sym_sync(SharedData& sd, const vector<complex<double>>& buf)
-{
+void sym_sync(SharedData& sd, const vector<complex<double>>& buf){
     int L = sd.form_filter.rx_l;
 
     if (buf.size() < size_t(3 * L))
@@ -19,8 +18,7 @@ void sym_sync(SharedData& sd, const vector<complex<double>>& buf)
     double K2 = (-4 * teta * teta) /
                 ((1 + 2*sd.gardner.zeta*teta + teta*teta) * sd.gardner.Kp);
 
-    for (int ns = 0; size_t(ns) < buf.size()/L - 1; ++ns)
-    {
+    for (int ns = 0; size_t(ns) < buf.size()/L - 1; ++ns){
         int n = sd.gardner.ss_offset;
 
         int idx_e = n + L*ns;

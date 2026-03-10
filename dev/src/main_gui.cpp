@@ -275,6 +275,8 @@ int main() {
             ImGuiWindowFlags_NoCollapse);
 
         ImGui::Text("FPS: %.1f (%.3f ms)", io.Framerate, 1000.0f / io.Framerate);
+        ImGui::Text("DSP Time %f", sd.avg_time);
+        ImGui::Text("Stream Time %f", sd.avg_stream_time);
 
         ImGui::SeparatorText("SDR Config");
 

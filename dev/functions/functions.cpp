@@ -146,7 +146,7 @@ void rebuild_ofdm_plans(SharedData& sd) {
     sd.fft.ofdm_rx_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * N);
 
     if (!sd.fft.ifft_in || !sd.fft.ifft_out || !sd.fft.ofdm_rx_in || !sd.fft.ofdm_rx_out) {
-        cerr << "[ERROR] FFT malloc failed!" << endl;
+        cerr << "FFT malloc failed!" << endl;
         exit(1);
     }
 
@@ -154,7 +154,7 @@ void rebuild_ofdm_plans(SharedData& sd) {
     sd.fft.ofdm_ifft_plan = fftw_plan_dft_1d(N, sd.fft.ifft_in, sd.fft.ifft_out, FFTW_BACKWARD, FFTW_ESTIMATE);
 
     if (!sd.fft.ofdm_fft_plan || !sd.fft.ofdm_ifft_plan) {
-        cerr << "[ERROR] FFT plan creation failed!" << endl;
+        cerr << "FFT plan creation failed!" << endl;
         exit(1);
     }
 

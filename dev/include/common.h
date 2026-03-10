@@ -163,6 +163,7 @@ struct SyncResult {
 struct Dbuf{
     static constexpr size_t NUM_BUFFERS = 8;
     vector<complex<double>> buffers[NUM_BUFFERS];
+    mutex buf_mutex[NUM_BUFFERS];
     
     atomic<size_t> write_idx{0};
     atomic<size_t> read_idx{0};
@@ -192,6 +193,9 @@ struct SharedData {
     vector<int16_t> last_tx_samples;
     vector<complex<double>> raw_buffer;
     vector<complex<double>> symbols;
+
+    double avg_time = 0;
+    double avg_stream_time = 0;
 
     vector<complex<double>> scope_buffer;
     size_t scope_head = 0;
