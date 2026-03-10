@@ -18,6 +18,7 @@ bool is_guard(int k, SharedData &sd){
 }
 
 vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, SharedData& sd){
+    sd.ofdm.padding = 0;
     const int N = sd.ofdm.n_subcarriers;
     const int dc = 0;
     const int nyq = N / 2;
@@ -49,6 +50,7 @@ vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, Sh
                     block[k] = symbols[data_ptr++];
                 else
                     block[k] = {0.0, 0.0};
+                    sd.ofdm.padding ++;
             }
         }
 

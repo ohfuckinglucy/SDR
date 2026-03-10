@@ -143,15 +143,16 @@ struct device_finder {
 };
 
 struct ofdm_conf {
-    int n_subcarriers = 64;
-    int cp_len = 16;
+    int n_subcarriers = 128;
+    int cp_len = 32;
     int sig_begin = 0;
     int sym_begin = 0;
-    int num_pilots = 6;
-    int pilot_spacing = 8;
-    int guard_dc = 4;
-    int guard_edge = 5;
+    int num_pilots = 20;
+    int guard_dc = 2;
+    int guard_edge = 26;
     vector<int8_t> pilot_idx = {8, 16, 24, 40, 48, 56};
+
+    int padding = 0;
 };
 
 struct SyncResult {
@@ -192,6 +193,7 @@ struct SharedData {
     vector<int16_t> tx_samples;
     vector<int16_t> last_tx_samples;
     vector<complex<double>> raw_buffer;
+    vector<complex<double>> raw_buffer_without_dsp;
     vector<complex<double>> symbols;
 
     double avg_time = 0;

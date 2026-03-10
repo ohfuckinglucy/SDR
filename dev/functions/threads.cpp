@@ -36,6 +36,8 @@ void rx_back(SharedData& sd, SDRConfig &config){
         vector<complex<double>> local_raw_buffer = move(sd.pipe.buffers[current_read]);
         sd.pipe.buffers[current_read].clear();
 
+        sd.raw_buffer_without_dsp = local_raw_buffer;
+
         size_t next_read = (current_read + 1) % Dbuf::NUM_BUFFERS;
         sd.pipe.read_idx.store(next_read, memory_order_release);
         sd.pipe.filled_count.fetch_sub(1, memory_order_acq_rel);
@@ -68,26 +70,26 @@ void rx_back(SharedData& sd, SDRConfig &config){
         if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin && sd.ofdm.sig_begin < (int)local_raw_buffer.size()){
             local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.n_subcarriers);
         }
+        
+        if (sd.flags.cfo_est_enabled && sd.ofdm.sym_begin >= 0) 
+        local_raw_buffer = cfo_est(local_raw_buffer, sd);
+        
+        if (sd.flags.ofdm_fft_enabled)
+        local_raw_buffer = discard_cp(local_raw_buffer, sd);
+
+        if (sd.flags.ofdm_eq_enabled)
+        local_raw_buffer = ofdm_equalize(local_raw_buffer, sd);
 
         sd.ofdm_sync.packet_len = 0;
         if(sd.flags.header_dec){
             sd.ofdm_sync.packet_len = decode_header(local_raw_buffer, sd);
             if (sd.ofdm.n_subcarriers + sd.ofdm.cp_len < (int)local_raw_buffer.size()){
-                local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.n_subcarriers + sd.ofdm.cp_len);
+                local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin());
             }
             if (sd.ofdm_sync.packet_len > 0 && sd.ofdm_sync.packet_len < (int)local_raw_buffer.size()) {
                 local_raw_buffer.erase(local_raw_buffer.begin() + sd.ofdm_sync.packet_len, local_raw_buffer.end());
             }
         }
-
-        if (sd.flags.cfo_est_enabled && sd.ofdm.sym_begin >= 0) 
-            local_raw_buffer = cfo_est(local_raw_buffer, sd);
-        
-        if (sd.flags.ofdm_fft_enabled)
-            local_raw_buffer = discard_cp(local_raw_buffer, sd);
-
-        if (sd.flags.ofdm_eq_enabled)
-            local_raw_buffer = ofdm_equalize(local_raw_buffer, sd);
 
         if (sd.flags.filter_enabled) 
             filter(local_raw_buffer.data(), local_raw_buffer.size(), sd.form_filter.rx_l);

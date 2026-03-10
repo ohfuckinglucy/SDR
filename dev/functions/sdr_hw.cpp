@@ -25,8 +25,8 @@ SDRConfig SDRinit(char *usb, struct SharedData &sd) {
     SoapySDRDevice_setFrequency(config.sdr, SOAPY_SDR_TX, 0, config.carrier_freq, nullptr);
 
     int channels = 0;
-    SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_RX, channels, 20);
-    SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_TX, channels, 40);
+    SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_RX, channels, 7);
+    SoapySDRDevice_setGain(config.sdr, SOAPY_SDR_TX, channels, 89);
 
     size_t rx_channels[] = {0};
     size_t tx_channels[] = {0};

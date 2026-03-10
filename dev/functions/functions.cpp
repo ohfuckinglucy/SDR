@@ -63,7 +63,7 @@ void signal_generate(SharedData& sd, SDRConfig &config){
             vector<complex<double>> preamble = generate_minn_preamble(sd);
             vector<complex<double>> freq_blocks = insert_pilots(symbols, sd);
             vector<complex<double>> data_signal = ofdm_modulator(freq_blocks, sd);
-            vector<complex<double>> header = generate_header(data_signal.size(), sd);
+            vector<complex<double>> header = generate_header(data_signal.size() - sd.ofdm.padding, sd);
 
             frame.reserve(preamble.size() + data_signal.size());
             frame.insert(frame.end(), preamble.begin(), preamble.end());

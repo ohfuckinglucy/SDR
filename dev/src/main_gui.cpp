@@ -31,6 +31,7 @@ int main() {
     );
 
     rebuild_ofdm_plans(sd);
+    update_pilots(ref(sd));
 
     SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER);
 
@@ -399,10 +400,7 @@ int main() {
             ImGui::SliderFloat("Ki", &sd.costas.cl_Ki, 0.0f, 0.3f);
         }
 
-        ImGui::End();
-
-        ImGui::Begin("OFDM Control Panel", nullptr,
-            ImGuiWindowFlags_NoCollapse);
+        ImGui::SeparatorText("OFDM Control Panel");
 
         ImGui::Checkbox("Ofdm receiver", &sd.flags.ofdm_enabled);
 
@@ -452,6 +450,7 @@ int main() {
             ImGui::Text("Idx |   I   |   Q");
             ImGui::Separator();
             for (int i = 0; i < N_rx; ++i) {
+                if ((2 * i + 1) > 2*N_rx  || (2 * i) > 2*N_rx) break;
                 int16_t I = sd.rx_bits[2*i];
                 int16_t Q = sd.rx_bits[2*i + 1];
                 ImGui::Text("%3d | %5d | %5d", i, I, Q);
@@ -524,6 +523,37 @@ int main() {
                 for (size_t i = 0; i < sd.tx_samples.size() / 2; ++i) {
                     scope_I.push_back(sd.tx_samples[2 * i]);
                     scope_Q.push_back(sd.tx_samples[2 * i + 1]);
+                }
+            }
+                        
+            if (!scope_I.empty()) {
+                ImPlot::SetupAxesLimits(0, scope_I.size(), -20000, 20000);
+                ImPlot::PlotLine("I", scope_I.data(), scope_I.size());
+                ImPlot::PlotLine("Q", scope_Q.data(), scope_Q.size());
+            } else {
+                ImPlot::SetupAxesLimits(0, 100, -20000, 20000);
+            }
+            ImPlot::EndPlot();
+        }
+
+        ImGui::End();
+
+        ImGui::Begin("RX Samples",
+            nullptr,
+            ImGuiWindowFlags_NoTitleBar
+        );
+
+        if (ImPlot::BeginPlot("TX Scope", ImVec2(-1, 600))) {
+            vector<double> scope_I, scope_Q;
+            {
+                lock_guard<mutex> lock(sd.mtx);
+                
+                scope_I.reserve(sd.raw_buffer_without_dsp.size());
+                scope_Q.reserve(sd.raw_buffer_without_dsp.size());
+                
+                for (size_t i = 0; i < sd.raw_buffer_without_dsp.size(); ++i) {
+                    scope_I.push_back(sd.raw_buffer_without_dsp[i].real());
+                    scope_Q.push_back(sd.raw_buffer_without_dsp[i].imag());
                 }
             }
                         
