@@ -9,6 +9,7 @@
 void rx_back(SharedData& sd, SDRConfig &config){
     vector<complex<double>> local_symbols;
     vector<double> local_fft_mag(sd.fft.FFT_SIZE);
+    sd.ofdm_sync.reference = generate_zc_preamble(sd);
 
     chrono::high_resolution_clock::time_point t_start, t_end;
 
@@ -53,14 +54,14 @@ void rx_back(SharedData& sd, SDRConfig &config){
         }
 
         if (sd.flags.ofdm_time_est) {
-            sd.ofdm.sig_begin = minn_sync(local_raw_buffer, sd);
+            sd.ofdm.sig_begin = zc_sync(local_raw_buffer, sd);
             if (sd.flags.loopback_flag) sd.flags.ofdm_time_est = false;
         }
 
         if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin && sd.ofdm.sig_begin < (int)local_raw_buffer.size()){
             local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.sig_begin);
         }
-
+        
         if (sd.flags.cp_time_sync){
             vector<int> preamble_indices = ofdm_sym_sync(local_raw_buffer, sd);
             sd.ofdm.sym_begin = preamble_indices.empty() ? -1 : preamble_indices[0];
@@ -68,7 +69,18 @@ void rx_back(SharedData& sd, SDRConfig &config){
         }
 
         if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin && sd.ofdm.sig_begin < (int)local_raw_buffer.size()){
-            local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.n_subcarriers);
+            local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.n_subcarriers + sd.ofdm.cp_len);
+        }
+
+        sd.ofdm_sync.packet_len = 0;
+        if(sd.flags.header_dec){
+            sd.ofdm_sync.packet_len = decode_header(local_raw_buffer, sd);
+            if (sd.ofdm.n_subcarriers + sd.ofdm.cp_len < (int)local_raw_buffer.size()){
+                local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.n_subcarriers + sd.ofdm.cp_len);
+            }
+            if (sd.ofdm_sync.packet_len > 0 && sd.ofdm_sync.packet_len < (int)local_raw_buffer.size()) {
+                local_raw_buffer.erase(local_raw_buffer.begin() + sd.ofdm_sync.packet_len, local_raw_buffer.end());
+            }
         }
         
         if (sd.flags.cfo_est_enabled && sd.ofdm.sym_begin >= 0) 
@@ -79,17 +91,6 @@ void rx_back(SharedData& sd, SDRConfig &config){
 
         if (sd.flags.ofdm_eq_enabled)
         local_raw_buffer = ofdm_equalize(local_raw_buffer, sd);
-
-        sd.ofdm_sync.packet_len = 0;
-        if(sd.flags.header_dec){
-            sd.ofdm_sync.packet_len = decode_header(local_raw_buffer, sd);
-            if (sd.ofdm.n_subcarriers + sd.ofdm.cp_len < (int)local_raw_buffer.size()){
-                local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin());
-            }
-            if (sd.ofdm_sync.packet_len > 0 && sd.ofdm_sync.packet_len < (int)local_raw_buffer.size()) {
-                local_raw_buffer.erase(local_raw_buffer.begin() + sd.ofdm_sync.packet_len, local_raw_buffer.end());
-            }
-        }
 
         if (sd.flags.filter_enabled) 
             filter(local_raw_buffer.data(), local_raw_buffer.size(), sd.form_filter.rx_l);

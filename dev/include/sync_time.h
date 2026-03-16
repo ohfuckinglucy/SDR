@@ -7,8 +7,10 @@ vector<int> ofdm_sym_sync(const vector<complex<double>>& signal, SharedData& sd)
 
 vector<complex<double>> generate_shmidt_preamble(SharedData& sd);
 vector<complex<double>> generate_minn_preamble(SharedData& sd);
+vector<complex<double>> generate_zc_preamble(SharedData& sd);
 
 int shmidt_sync(const vector<complex<double>>& signal, SharedData& sd);
 int minn_sync(const vector<complex<double>>& signal, SharedData& sd);
+int zc_sync(const vector<complex<double>>& signal, SharedData& sd);
 
 #endif

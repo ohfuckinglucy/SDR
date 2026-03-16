@@ -40,6 +40,8 @@ constexpr long long TX_DELAY = 8000000;
 
 using namespace std;
 
+struct SharedData;
+
 struct SDRConfig {
     SoapySDRDevice* sdr;
     SoapySDRStream* rxStream;
@@ -159,6 +161,8 @@ struct SyncResult {
     int timing_offset;
     double cfo_estimate = 0;
     uint16_t packet_len = 0;
+
+    vector<complex<double>> reference;
 };
 
 struct Dbuf{

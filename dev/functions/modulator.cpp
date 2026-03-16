@@ -166,6 +166,8 @@ vector<complex<double>> generate_header(size_t size, SharedData &sd){
     vector<complex<double>> freq_blocks = insert_pilots(preamble_symbols, sd);
     vector<complex<double>> ofdm_header = ofdm_modulator(freq_blocks, sd);
 
+    cout << size << endl;
+
     return ofdm_header;
 }
 
@@ -176,9 +178,9 @@ uint16_t decode_header(const vector<complex<double>> signal, SharedData &sd){
     size_t CP = sd.ofdm.cp_len;
 
     header_frame.insert(header_frame.begin(), signal.begin(), signal.begin() + N + CP);
-    // header_frame = cfo_est(header_frame, sd);
-    // header_frame = discard_cp(header_frame, sd);
-    // header_frame = ofdm_equalize(header_frame, sd);
+    header_frame = cfo_est(header_frame, sd);
+    header_frame = discard_cp(header_frame, sd);
+    header_frame = ofdm_equalize(header_frame, sd);
 
     vector<int16_t> bits = demodulator(header_frame, "QAM::2");
 
