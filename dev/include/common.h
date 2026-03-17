@@ -242,4 +242,6 @@ void tx_back(SharedData& sd, SDRConfig &config);
 
 void SDRStream(SharedData& sd, SDRConfig &config);
 
+vector<int16_t> calculateCRC16(const vector<int16_t>& data);
+
 #endif

@@ -47,12 +47,6 @@ void rx_back(SharedData& sd, SDRConfig &config){
 
         local_symbols.clear();
 
-        if (sd.flags.costas_loop_enabled){
-            for (auto& x : local_raw_buffer) {
-                x = sd.flags.QAM16_costas_loop ? costas_loop_16qam(sd, x) : costas_loop(sd, x);
-            }
-        }
-
         if (sd.flags.ofdm_time_est) {
             sd.ofdm.sig_begin = zc_sync(local_raw_buffer, sd);
             if (sd.flags.loopback_flag) sd.flags.ofdm_time_est = false;
@@ -62,12 +56,6 @@ void rx_back(SharedData& sd, SDRConfig &config){
             local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.sig_begin);
         }
         
-        if (sd.flags.cp_time_sync){
-            vector<int> preamble_indices = ofdm_sym_sync(local_raw_buffer, sd);
-            sd.ofdm.sym_begin = preamble_indices.empty() ? -1 : preamble_indices[0];
-            if (sd.flags.loopback_flag) sd.flags.cp_time_sync = false;
-        }
-
         if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin && sd.ofdm.sig_begin < (int)local_raw_buffer.size()){
             local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.n_subcarriers + sd.ofdm.cp_len);
         }
@@ -92,18 +80,7 @@ void rx_back(SharedData& sd, SDRConfig &config){
         if (sd.flags.ofdm_eq_enabled)
         local_raw_buffer = ofdm_equalize(local_raw_buffer, sd);
 
-        if (sd.flags.filter_enabled) 
-            filter(local_raw_buffer.data(), local_raw_buffer.size(), sd.form_filter.rx_l);
-
-        if (sd.gardner.sym_sync_enabled) {
-            sym_sync(sd, local_raw_buffer);
-            sd.flags.used_gardner = true;
-            for (size_t i = sd.gardner.ss_offset; i < local_raw_buffer.size(); i += sd.form_filter.rx_l) {
-                local_symbols.push_back(local_raw_buffer[i]);
-            }
-        } else {
-            local_symbols = local_raw_buffer;
-        }
+        local_symbols = local_raw_buffer;
 
         size_t n = min(local_raw_buffer.size(), sd.fft.FFT_SIZE);
         for (size_t i = 0; i < n; i++) {

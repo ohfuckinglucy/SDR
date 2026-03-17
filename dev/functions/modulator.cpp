@@ -3,43 +3,6 @@
 #include "sync_freq.h"
 #include <algorithm>
 
-vector<complex<double>> UpSampler(const vector<complex<double>> &symbols, int L)
-{
-    vector<complex<double>> symbols_ups(symbols.size() * L);
-    for (size_t i = 0; i < symbols.size() * L; i++)
-    {
-        symbols_ups[i] = {0.0, 0.0};
-    }
-    for (size_t i = 0; i < symbols.size(); i++)
-    {
-        symbols_ups[i * L] = symbols[i];
-    }
-
-    return symbols_ups;
-}
-
-void filter(complex<double> *symbols_ups, int len_symbols_ups, int L)
-{
-    if (L <= 1 || len_symbols_ups <= 0)
-        return;
-
-    vector<complex<double>> impulse(L, 1.0);
-    vector<complex<double>> sum(len_symbols_ups, 0.0);
-
-    for (int i = 0; i < len_symbols_ups; i++)
-    {
-        for (int j = 0; j < L && (i - j) >= 0; j++)
-        {
-            sum[i] += impulse[j] * symbols_ups[i - j];
-        }
-    }
-
-    for (int i = 0; i < len_symbols_ups; i++)
-    {
-        symbols_ups[i] = sum[i];
-    }
-}
-
 vector<complex<double>> modulator(vector<int16_t> bits, int len_bits, string type)
 {
     double I, Q;
@@ -87,6 +50,27 @@ vector<complex<double>> modulator(vector<int16_t> bits, int len_bits, string typ
             Q = (1.0 - 2.0 * bits[4 * i + 1]) * (2.0 - (1.0 - 2.0 * bits[4 * i + 3]));
 
             symbols[i] = complex<double>(I, Q) / sqrt(10);
+        }
+        return symbols;
+    }
+    else if (type == "QAM::256")
+    {
+        if (len_bits % 8 != 0)
+        {
+            cerr << "[ERROR] Modulator, bits not % = 0" << endl;
+            exit(1);
+        }
+        vector<complex<double>> symbols(len_bits / 8);
+        for (int i = 0; i < len_bits / 8; ++i)
+        {
+            int idx = 8*i;
+
+            int i1 = bits[idx]; int i2 = bits[idx+2]; int i3 = bits[idx+4]; int i4 = bits[idx+6];
+            int q1 = bits[idx+1]; int q2 = bits[idx+3]; int q3 = bits[idx+5]; int q4 = bits[idx+7];
+
+            I = (1 - 2 * i1) * (8 - (1 - 2 * i2)) * (4 - (1 - 2 * i3)) * (2 - (1 - 2 * i4));
+            Q = (1 - 2 * q1) * (8 - (1 - 2 * q2)) * (4 - (1 - 2 * q3)) * (2 - (1 - 2 * q4));
+            symbols[i] = complex<double>(I, Q) / sqrt(170);
         }
         return symbols;
     }
@@ -154,10 +138,12 @@ vector<int16_t> demodulator(const vector<complex<double>> &symbols, string type)
     return bits;
 }
 
-vector<complex<double>> generate_header(size_t size, SharedData &sd){
+vector<complex<double>> generate_header(size_t size, SharedData &sd)
+{
     uint16_t num = size;
     std::vector<int16_t> binary;
-    for (int i = 15; i >= 0; --i){
+    for (int i = 15; i >= 0; --i)
+    {
         auto bit = (num >> i) & 1;
         binary.push_back(static_cast<int16_t>(bit));
     }
@@ -171,7 +157,8 @@ vector<complex<double>> generate_header(size_t size, SharedData &sd){
     return ofdm_header;
 }
 
-uint16_t decode_header(const vector<complex<double>> signal, SharedData &sd){
+uint16_t decode_header(const vector<complex<double>> signal, SharedData &sd)
+{
     vector<complex<double>> header_frame;
 
     size_t N = sd.ofdm.n_subcarriers;
@@ -185,7 +172,8 @@ uint16_t decode_header(const vector<complex<double>> signal, SharedData &sd){
     vector<int16_t> bits = demodulator(header_frame, "QAM::2");
 
     uint16_t packet_len = 0;
-    for (size_t i = 0; i < 16 && i < bits.size(); ++i){
+    for (size_t i = 0; i < 16 && i < bits.size(); ++i)
+    {
         packet_len = (packet_len << 1) | (bits[i] & 1);
     }
 
@@ -201,6 +189,10 @@ int bits_per_symbol(string type)
     else if (type == "QAM::4")
     {
         return 2;
+    }
+    else if (type == "QAM::256")
+    {
+        return 8;
     }
     else
     {

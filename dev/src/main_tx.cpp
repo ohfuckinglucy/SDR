@@ -167,24 +167,6 @@ int main() {
             sd.flags.tx_regenerate = true;
         }
 
-        int L = sd.form_filter.tx_l;
-        if (ImGui::SliderInt("L", &L, 1, 100)) {
-            lock_guard<mutex> lock(sd.mtx);
-            sd.form_filter.tx_l = L;
-        }
-        bool upS = sd.flags.upsampling_enabled;
-        if (ImGui::Checkbox("Upsampling", &upS)){
-            lock_guard<mutex> lock(sd.mtx);
-            sd.flags.upsampling_enabled = upS;
-        }
-
-        ImGui::Checkbox("FormFilter", &sd.flags.tx_filter);
-        bool ofdm_flag = sd.flags.ofdm_enabled;
-        if (ImGui::Checkbox("ofdm", &ofdm_flag)){
-            lock_guard<mutex> lock(sd.mtx);
-            sd.flags.ofdm_enabled = ofdm_flag;
-        }
-        
         if (!sd.flags.g_running) {
             if (ImGui::Button("Start TX")) {
                 if (sd.dev_f.selected_uri.empty()) {

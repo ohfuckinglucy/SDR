@@ -6,12 +6,6 @@
 #include "sync_freq.h"
 #include <iostream>
 
-const vector<int16_t> barker = {
-    0,0,0,0,0,1,1,0,0,1,0,1,0
-};
-
-const size_t barker_len = barker.size();
-
 void signal_generate(SharedData& sd, SDRConfig &config){
     vector<complex<double>> local_raw_buffer;
     vector<complex<double>> local_symbols;
@@ -25,11 +19,12 @@ void signal_generate(SharedData& sd, SDRConfig &config){
     vector<complex<double>> tx_frame;
 
     string mod_type;
-    if (sd.flags.modulation_index == 0) mod_type = "QAM::2";
+    if (sd.flags.modulation_index == 0) mod_type = "QAM::256";
     else if (sd.flags.modulation_index == 1) mod_type = "QAM::4";
     else mod_type = "QAM::16";
 
     if (sd.flags.tx_regenerate){
+        vector<int16_t> CRC;
         vector<complex<double>> frame; 
 
         int bits_ps = bits_per_symbol(mod_type);
@@ -46,16 +41,10 @@ void signal_generate(SharedData& sd, SDRConfig &config){
 
         sd.bits.resize(total_symbols * bits_ps);
 
-        if (sd.bits.size() < 26) sd.bits.resize(100);
-
-        for (size_t i = 0; i < barker_len; ++i)
-            sd.bits[i] = barker[i];
-
-        for (size_t i = 0; i < barker_len; ++i)
-            sd.bits[barker_len + i] = barker[i];
-
-        for (size_t i = 2 * barker_len; i < sd.bits.size(); ++i)
+        for (size_t i = 0; i < sd.bits.size(); ++i)
             sd.bits[i] = rand() % 2;
+
+        CRC = calculateCRC16(sd.bits);
 
         vector<complex<double>> symbols = modulator(sd.bits, sd.bits.size(), mod_type);
 
@@ -65,22 +54,12 @@ void signal_generate(SharedData& sd, SDRConfig &config){
             vector<complex<double>> data_signal = ofdm_modulator(freq_blocks, sd);
             vector<complex<double>> header = generate_header(data_signal.size(), sd);
 
-            frame.reserve(preamble.size() + data_signal.size());
-            frame.insert(frame.end(), preamble.begin(), preamble.end());
-            frame.insert(frame.end(), header.begin(), header.end());
-            frame.insert(frame.end(), data_signal.begin(), data_signal.end());
+            tx_frame.reserve(preamble.size() + data_signal.size());
+            tx_frame.insert(tx_frame.end(), preamble.begin(), preamble.end());
+            tx_frame.insert(tx_frame.end(), header.begin(), header.end());
+            tx_frame.insert(tx_frame.end(), data_signal.begin(), data_signal.end());
         } else {
-            frame = move(symbols);
-        }
-
-        tx_frame.clear();
-        if (!frame.empty()) {
-            if (sd.flags.upsampling_enabled) {
-                tx_frame = UpSampler(frame, sd.form_filter.tx_l);
-                if (sd.flags.tx_filter) filter(tx_frame.data(), tx_frame.size(), sd.form_filter.tx_l);
-            } else {
-                tx_frame = move(frame);
-            }
+            tx_frame = move(symbols);
         }
 
         tx_sent_idx = 0;
@@ -138,7 +117,7 @@ void rebuild_ofdm_plans(SharedData& sd) {
         sd.fft.ofdm_rx_out = nullptr;
     }
 
-    if (N <= 0) N = 64;
+    if (N <= 0) N = 128;
 
     sd.fft.ifft_in = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * N);
     sd.fft.ifft_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * N);
@@ -159,4 +138,42 @@ void rebuild_ofdm_plans(SharedData& sd) {
     }
 
     sd.flags.ofdm_config_changed = false;
+}
+
+vector<int16_t> calculateCRC16(const vector<int16_t>& data){
+    int16_t crc = 0;
+    vector<int16_t> crc_bits;
+    crc_bits.reserve(16);
+    int16_t polynomial = 0x1021;
+    
+    vector<uint8_t> bytes;
+
+    for (size_t i = 0; i < data.size(); i += 8){
+        uint8_t byte = 0;
+        for (int j = 0; j < 8 && (i + j) < data.size(); ++j){
+            if (data[i+j] != 0){
+                byte |= (1 << (7 - j));
+            }
+        }
+        bytes.push_back(byte);
+    }
+
+    for (uint8_t byte : bytes){
+        crc &= (int16_t)byte << 8;
+        for (int i = 0; i < 8; ++i){
+            if (crc & 0x8000){
+                crc = (crc << 1) ^ polynomial;
+            } else {
+                crc <<= 1;
+            }
+        }
+    }
+
+    for (int i = 15; i >= 0; --i){
+        int16_t bit = (crc >> i) & 1;
+        crc_bits.push_back(bit);
+        cout << bit;
+    }
+
+    return crc_bits;
 }

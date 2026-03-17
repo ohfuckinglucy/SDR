@@ -218,22 +218,6 @@ int main() {
                     sd.flags.tx_regenerate = true;
                 }
 
-                int L = sd.form_filter.tx_l;
-                if (ImGui::SliderInt("L", &L, 1, 100)) {
-                    lock_guard<mutex> lock(sd.mtx);
-                    sd.form_filter.tx_l = L;
-                }
-
-                bool upsampling_enabled = sd.flags.upsampling_enabled;
-                if (ImGui::Checkbox("UpSampling", &upsampling_enabled)) {
-                    sd.flags.upsampling_enabled = upsampling_enabled;
-                }
-
-                bool tx_filter = sd.flags.tx_filter;
-                if (ImGui::Checkbox("TX Filter", &tx_filter)) {
-                    sd.flags.tx_filter = tx_filter;
-                }
-
                 if (!sd.flags.loopback_flag) {
                     ImGui::CloseCurrentPopup();
                 }
@@ -313,93 +297,6 @@ int main() {
                 sd.flags.tx_bw_changed = true;
         }
 
-        ImGui::SeparatorText("Form Filter");
-
-        bool formfilter_enabled = sd.flags.filter_enabled;
-        if (ImGui::Checkbox("Enable Square Filter", &formfilter_enabled)) {
-            {
-                lock_guard<mutex> lock(sd.mtx);
-                sd.flags.filter_enabled = formfilter_enabled;
-                
-                if (!formfilter_enabled) {
-                    sd.flags.mf_init = false;
-                    sd.form_filter.mf_index = 0;
-                    sd.form_filter.mf_sum = complex<double>(0.0);
-                    fill(sd.form_filter.mf_delay.begin(), sd.form_filter.mf_delay.end(), complex<double>(0.0));
-                }
-            }
-        }
-
-        int L = sd.form_filter.rx_l;
-
-        if (formfilter_enabled){
-            if (ImGui::SliderInt("Filter Length", &L, 2, 50)) {
-                lock_guard<mutex> lock(sd.mtx);
-                sd.form_filter.rx_l = L;
-                sd.form_filter.mf_delay.resize(L - 1, 0.0);
-                sd.flags.mf_init = false;
-                sd.form_filter.mf_index = 0;
-                sd.form_filter.mf_sum = 0.0;
-            }
-        }
-
-        ImGui::SeparatorText("Symbol Sync");
-
-        bool sync_enabled = sd.gardner.sym_sync_enabled;
-        if (ImGui::Checkbox("Symbol Sync", &sync_enabled)) {
-            sd.gardner.sym_sync_enabled = sync_enabled;
-        }
-
-        if (sync_enabled){
-            ImGui::SameLine();
-
-            ImGui::Text("Offset: %d", sd.gardner.ss_offset);
-            float BnTs = sd.gardner.BnTs;
-            float KpG = sd.gardner.Kp;
-    
-            int Threshold = sd.Threshold;
-            if (ImGui::SliderInt("Threshold", &Threshold, 0, 1000)){
-                lock_guard<mutex> lock(sd.mtx);
-                sd.Threshold = Threshold;
-            }
-    
-            if (ImGui::SliderFloat("BnTs", &BnTs, 0.0f, 0.1f))
-            {
-                std::lock_guard<std::mutex> lock(sd.mtx);
-                sd.gardner.BnTs = BnTs;
-    
-                sd.gardner.ss_p1 = 0.0;
-                sd.gardner.ss_p2 = 0.0;
-            }
-    
-            if (ImGui::SliderFloat("Kp Gar", &KpG, 0.0f, 10.0f))
-            {
-                std::lock_guard<std::mutex> lock(sd.mtx);
-                sd.gardner.Kp = KpG;
-    
-                sd.gardner.ss_p1 = 0.0;
-                sd.gardner.ss_p2 = 0.0;
-            }
-        }
-        
-        ImGui::SeparatorText("Phase, Freq Sync's");
-        
-        if (ImGui::Checkbox("Costas Loop", &sd.flags.costas_loop_enabled)){
-            if (!sd.flags.costas_loop_enabled) {
-                Costas_enabled = false;
-            } else {
-                Costas_enabled = true;
-            }
-        }
-        if (Costas_enabled){
-            ImGui::SameLine();
-            ImGui::Checkbox("QAM16", &sd.flags.QAM16_costas_loop);
-            ImGui::SameLine();
-            ImGui::Text("Freq offset: %f", sd.costas.cl_theta_hat);
-            ImGui::SliderFloat("Kp", &sd.costas.cl_Kp, 0.0f, 0.3f);
-            ImGui::SliderFloat("Ki", &sd.costas.cl_Ki, 0.0f, 0.3f);
-        }
-
         ImGui::SeparatorText("OFDM Control Panel");
 
         ImGui::Checkbox("Ofdm receiver", &sd.flags.ofdm_enabled);
@@ -410,9 +307,6 @@ int main() {
             ImGui::Text("Signal Begin: %d", sd.ofdm.sig_begin);
             ImGui::SameLine();
             ImGui::SliderInt("Manual Sync", &sd.ofdm.sig_begin, 0, 1920);
-            ImGui::Checkbox("Sym Sync", &sd.flags.cp_time_sync);
-            ImGui::SameLine();
-            ImGui::Text("Symbol Begin: %d", sd.ofdm.sym_begin);
             ImGui::Checkbox("Cut Begin", &sd.flags.cut_begin);
             ImGui::Checkbox("Decode Header", &sd.flags.header_dec);
             ImGui::SameLine();
