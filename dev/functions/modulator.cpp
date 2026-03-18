@@ -53,24 +53,20 @@ vector<complex<double>> modulator(vector<int16_t> bits, int len_bits, string typ
         }
         return symbols;
     }
-    else if (type == "QAM::256")
+    else if (type == "QAM::64")
     {
-        if (len_bits % 8 != 0)
+        if (len_bits % 6 != 0)
         {
             cerr << "[ERROR] Modulator, bits not % = 0" << endl;
             exit(1);
         }
-        vector<complex<double>> symbols(len_bits / 8);
-        for (int i = 0; i < len_bits / 8; ++i)
+        vector<complex<double>> symbols(len_bits / 6);
+        for (int i = 0; i < len_bits / 6; ++i)
         {
-            int idx = 8*i;
+            I = (1.0 - 2.0 * bits[6 * i]) * (4 - (1.0 - 2.0 * bits[6 * i + 2]) * (2 - (1.0 - 2.0 * bits[6 * i + 4])));
+            Q = (1.0 - 2.0 * bits[6 * i + 1]) * (4 - (1.0 - 2.0 * bits[6 * i + 3]) * (2 - (1.0 - 2.0 * bits[6 * i + 5])));
 
-            int i1 = bits[idx]; int i2 = bits[idx+2]; int i3 = bits[idx+4]; int i4 = bits[idx+6];
-            int q1 = bits[idx+1]; int q2 = bits[idx+3]; int q3 = bits[idx+5]; int q4 = bits[idx+7];
-
-            I = (1 - 2 * i1) * (8 - (1 - 2 * i2)) * (4 - (1 - 2 * i3)) * (2 - (1 - 2 * i4));
-            Q = (1 - 2 * q1) * (8 - (1 - 2 * q2)) * (4 - (1 - 2 * q3)) * (2 - (1 - 2 * q4));
-            symbols[i] = complex<double>(I, Q) / sqrt(170);
+            symbols[i] = complex<double>(I, Q) / sqrt(42.0);
         }
         return symbols;
     }
@@ -128,6 +124,31 @@ vector<int16_t> demodulator(const vector<complex<double>> &symbols, string type)
 
             bits[4 * i + 1] = (Q > 0) ? 0 : 1;
             bits[4 * i + 3] = (abs(Q) > threshold) ? 1 : 0;
+        }
+    }
+    else if (type == "QAM::64")
+    {
+        if (symbols.empty())
+            return bits;
+
+        bits.resize(symbols.size() * 6);
+        double s42 = sqrt(42.0);
+        double t2 = 2.0 / s42;
+        double t4 = 4.0 / s42;
+        double t6 = 6.0 / s42;
+
+        for (size_t i = 0; i < symbols.size(); ++i)
+        {
+            double I = symbols[i].real();
+            double Q = symbols[i].imag();
+
+            bits[6 * i] = (I > 0) ? 0 : 1;
+            bits[6 * i + 2] = (abs(I) > t4) ? 1 : 0;
+            bits[6 * i + 4] = (abs(I) < t2 || abs(I) > t6) ? 1 : 0;
+
+            bits[6 * i + 1] = (Q > 0) ? 0 : 1;
+            bits[6 * i + 3] = (abs(Q) > t4) ? 1 : 0;
+            bits[6 * i + 5] = (abs(Q) < t2 || abs(Q) > t6) ? 1 : 0;
         }
     }
     else
@@ -190,12 +211,16 @@ int bits_per_symbol(string type)
     {
         return 2;
     }
-    else if (type == "QAM::256")
+    else if (type == "QAM::16")
     {
-        return 8;
+        return 4;
+    }
+    else if (type == "QAM::64")
+    {
+        return 6;
     }
     else
     {
-        return 4;
+        return 1;
     }
 }

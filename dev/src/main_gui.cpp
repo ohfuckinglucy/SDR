@@ -191,20 +191,22 @@ int main() {
                     "QAM::2",
                     "QAM::4",
                     "QAM::16",
+                    "QAM::64",
                     "QAM::2 + OFDM",
                     "QAM::4 + OFDM",
-                    "QAM::16 + OFDM"
+                    "QAM::16 + OFDM",
+                    "QAM::64 + OFDM"
                 };
 
                 if (ImGui::Combo("TX Mode", &tx_mode, tx_modes, IM_ARRAYSIZE(tx_modes))) {
                     std::lock_guard<std::mutex> lock(sd.mtx);
 
-                    if (tx_mode < 3) {
+                    if (tx_mode < 4) {
                         sd.flags.ofdm_enabled_tx = false;
                         sd.flags.modulation_index = tx_mode;
                     } else {
                         sd.flags.ofdm_enabled_tx = true;
-                        sd.flags.modulation_index = tx_mode - 3;
+                        sd.flags.modulation_index = tx_mode - 4;
                     }
 
                     sd.flags.tx_regenerate = true;

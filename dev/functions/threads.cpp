@@ -6,7 +6,8 @@
 #include "sync_freq.h"
 #include <iostream>
 
-void rx_back(SharedData& sd, SDRConfig &config){
+void rx_back(SharedData &sd, SDRConfig &config)
+{
     vector<complex<double>> local_symbols;
     vector<double> local_fft_mag(sd.fft.FFT_SIZE);
     sd.ofdm_sync.reference = generate_zc_preamble(sd);
@@ -16,16 +17,25 @@ void rx_back(SharedData& sd, SDRConfig &config){
     long long total_duration_us = 0;
     int frame_count = 0;
 
-    while (sd.flags.g_running){
+    while (sd.flags.g_running)
+    {
         t_start = chrono::high_resolution_clock::now();
         string mod_type;
-        if (sd.flags.modulation_index == 0) mod_type = "QAM::2";
-        else if (sd.flags.modulation_index == 2) mod_type = "QAM::16";
-        else mod_type = "QAM::4";
+        if (sd.flags.modulation_index == 0)
+            mod_type = "QAM::2";
+        else if (sd.flags.modulation_index == 1)
+            mod_type = "QAM::4";
+        else if (sd.flags.modulation_index == 2)
+            mod_type = "QAM::16";
+        else if (sd.flags.modulation_index == 3)
+            mod_type = "QAM::64";
+        else
+            mod_type = "QAM::2";
 
         size_t filled = sd.pipe.filled_count.load(memory_order_acquire);
 
-        if (filled == 0) {
+        if (filled == 0)
+        {
             asm volatile("pause" ::: "memory");
             continue;
         }
@@ -43,57 +53,68 @@ void rx_back(SharedData& sd, SDRConfig &config){
         sd.pipe.read_idx.store(next_read, memory_order_release);
         sd.pipe.filled_count.fetch_sub(1, memory_order_acq_rel);
 
-        if (local_raw_buffer.empty()) continue;
+        if (local_raw_buffer.empty())
+            continue;
 
         local_symbols.clear();
 
-        if (sd.flags.ofdm_time_est) {
+        if (sd.flags.ofdm_time_est)
+        {
             sd.ofdm.sig_begin = zc_sync(local_raw_buffer, sd);
-            if (sd.flags.loopback_flag) sd.flags.ofdm_time_est = false;
+            if (sd.flags.loopback_flag)
+                sd.flags.ofdm_time_est = false;
         }
 
-        if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin && sd.ofdm.sig_begin < (int)local_raw_buffer.size()){
+        if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin && sd.ofdm.sig_begin < (int)local_raw_buffer.size())
+        {
             local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.sig_begin);
         }
-        
-        if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin && sd.ofdm.sig_begin < (int)local_raw_buffer.size()){
+
+        if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin && sd.ofdm.sig_begin < (int)local_raw_buffer.size())
+        {
             local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.n_subcarriers + sd.ofdm.cp_len);
         }
 
         sd.ofdm_sync.packet_len = 0;
-        if(sd.flags.header_dec){
+        if (sd.flags.header_dec)
+        {
             sd.ofdm_sync.packet_len = decode_header(local_raw_buffer, sd);
-            if (sd.ofdm.n_subcarriers + sd.ofdm.cp_len < (int)local_raw_buffer.size()){
+            if (sd.ofdm.n_subcarriers + sd.ofdm.cp_len < (int)local_raw_buffer.size())
+            {
                 local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.n_subcarriers + sd.ofdm.cp_len);
             }
-            if (sd.ofdm_sync.packet_len > 0 && sd.ofdm_sync.packet_len < (int)local_raw_buffer.size()) {
+            if (sd.ofdm_sync.packet_len > 0 && sd.ofdm_sync.packet_len < (int)local_raw_buffer.size())
+            {
                 local_raw_buffer.erase(local_raw_buffer.begin() + sd.ofdm_sync.packet_len, local_raw_buffer.end());
             }
         }
-        
-        if (sd.flags.cfo_est_enabled && sd.ofdm.sym_begin >= 0) 
-        local_raw_buffer = cfo_est(local_raw_buffer, sd);
-        
+
+        if (sd.flags.cfo_est_enabled && sd.ofdm.sym_begin >= 0)
+            local_raw_buffer = cfo_est(local_raw_buffer, sd);
+
         if (sd.flags.ofdm_fft_enabled)
-        local_raw_buffer = discard_cp(local_raw_buffer, sd);
+            local_raw_buffer = discard_cp(local_raw_buffer, sd);
 
         if (sd.flags.ofdm_eq_enabled)
-        local_raw_buffer = ofdm_equalize(local_raw_buffer, sd);
+            local_raw_buffer = ofdm_equalize(local_raw_buffer, sd);
 
         local_symbols = local_raw_buffer;
 
         size_t n = min(local_raw_buffer.size(), sd.fft.FFT_SIZE);
-        for (size_t i = 0; i < n; i++) {
+        for (size_t i = 0; i < n; i++)
+        {
             sd.fft.fft_in[i][0] = local_raw_buffer[local_raw_buffer.size() - n + i].real();
             sd.fft.fft_in[i][1] = local_raw_buffer[local_raw_buffer.size() - n + i].imag();
         }
-        for (size_t i = n; i < sd.fft.FFT_SIZE; i++) {
+        for (size_t i = n; i < sd.fft.FFT_SIZE; i++)
+        {
             sd.fft.fft_in[i][0] = 0.0;
             sd.fft.fft_in[i][1] = 0.0;
         }
         fftw_execute(sd.fft.spectrum_plan);
 
-        for (size_t i = 0; i < sd.fft.FFT_SIZE; i++) {
+        for (size_t i = 0; i < sd.fft.FFT_SIZE; i++)
+        {
             double re = sd.fft.fft_out[i][0];
             double im = sd.fft.fft_out[i][1];
             local_fft_mag[i] = log10(re * re + im * im + 1e-10);
@@ -120,16 +141,20 @@ void rx_back(SharedData& sd, SDRConfig &config){
     }
 }
 
-void SDRStream(SharedData& sd, SDRConfig &config){
-    if (!config.sdr || !config.rxStream || !config.rx_buffer) {
+void SDRStream(SharedData &sd, SDRConfig &config)
+{
+    if (!config.sdr || !config.rxStream || !config.rx_buffer)
+    {
         cerr << "ERROR: SDR config!" << endl;
         sd.flags.g_running = false;
         return;
     }
 
     static bool buffers_initialized = false;
-    if (!buffers_initialized) {
-        for(size_t i = 0; i < Dbuf::NUM_BUFFERS; ++i) {
+    if (!buffers_initialized)
+    {
+        for (size_t i = 0; i < Dbuf::NUM_BUFFERS; ++i)
+        {
             sd.pipe.buffers[i].reserve(sd.pipe.buffer_size);
             sd.pipe.buffers[i].clear();
         }
@@ -142,37 +167,41 @@ void SDRStream(SharedData& sd, SDRConfig &config){
     long long total_duration_us = 0;
     int frame_count = 0;
 
-    while (sd.flags.g_running){
+    while (sd.flags.g_running)
+    {
         t_start = chrono::high_resolution_clock::now();
 
         reconfig_sdr(ref(sd), ref(config));
         signal_generate(ref(sd), ref(config));
-        
+
         size_t frame_len = sd.tx_samples.size() / 2;
         size_t num_blocks = (frame_len + config.tx_mtu - 1) / config.tx_mtu;
         size_t total_samples = num_blocks * config.tx_mtu;
-        
-        if (blk < num_blocks) blk = 0;
+
+        if (blk < num_blocks)
+            blk = 0;
 
         void *rx_buffs[] = {config.rx_buffer};
         int flags = 0;
         long long timeNs = 0;
-        
+
         size_t buf_count = total_samples / config.tx_mtu;
-        
+
         int sr = SoapySDRDevice_readStream(config.sdr, config.rxStream, rx_buffs, config.rx_mtu, &flags, &timeNs, TIMEOUT);
-        if (sd.flags.loopback_flag){
-            const void* tx_buffs[] = { sd.tx_samples.data() + 2 * blk * config.tx_mtu};
+        if (sd.flags.loopback_flag)
+        {
+            const void *tx_buffs[] = {sd.tx_samples.data() + 2 * blk * config.tx_mtu};
             int flags = SOAPY_SDR_HAS_TIME;
             long long tx_time = timeNs + TX_DELAY;
-            
+
             SoapySDRDevice_writeStream(config.sdr, config.txStream, tx_buffs, config.tx_mtu, &flags, tx_time, TIMEOUT);
-            ++ blk;
+            ++blk;
         }
 
         size_t current_write = sd.pipe.write_idx.load(memory_order_acquire);
 
-        if (current_write >= Dbuf::NUM_BUFFERS) {
+        if (current_write >= Dbuf::NUM_BUFFERS)
+        {
             cerr << "[SDRStream] CORRUPTED: write_idx=" << current_write << ", resetting!" << endl;
             sd.pipe.write_idx.store(0, memory_order_release);
             sd.pipe.filled_count.store(0, memory_order_release);
@@ -181,7 +210,8 @@ void SDRStream(SharedData& sd, SDRConfig &config){
 
         size_t current_filled = sd.pipe.filled_count.load(memory_order_acquire);
 
-        if (current_filled >= Dbuf::NUM_BUFFERS) {
+        if (current_filled >= Dbuf::NUM_BUFFERS)
+        {
             size_t old_read = sd.pipe.read_idx.load(memory_order_acquire);
             size_t new_read = (old_read + 1) % Dbuf::NUM_BUFFERS;
             sd.pipe.read_idx.store(new_read, memory_order_release);
@@ -194,15 +224,17 @@ void SDRStream(SharedData& sd, SDRConfig &config){
 
         buf.clear();
 
-        int16_t* data_ptr = static_cast<int16_t*>(config.rx_buffer);
-        if (!data_ptr) continue;
+        int16_t *data_ptr = static_cast<int16_t *>(config.rx_buffer);
+        if (!data_ptr)
+            continue;
 
-        for (int i = 0; i < sr; ++i) {
-            if (2*i + 1 >= config.rx_mtu * 2) break;
+        for (int i = 0; i < sr; ++i)
+        {
+            if (2 * i + 1 >= config.rx_mtu * 2)
+                break;
             buf.emplace_back(
-                static_cast<double>(data_ptr[2*i]), 
-                static_cast<double>(data_ptr[2*i+1])
-            );
+                static_cast<double>(data_ptr[2 * i]),
+                static_cast<double>(data_ptr[2 * i + 1]));
         }
 
         size_t next_write = (current_write + 1) % Dbuf::NUM_BUFFERS;
