@@ -67,12 +67,7 @@ void rx_back(SharedData &sd, SDRConfig &config)
 
         if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin && sd.ofdm.sig_begin < (int)local_raw_buffer.size())
         {
-            local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.sig_begin);
-        }
-
-        if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin && sd.ofdm.sig_begin < (int)local_raw_buffer.size())
-        {
-            local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.n_subcarriers + sd.ofdm.cp_len);
+            local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.sig_begin + sd.ofdm.n_subcarriers + sd.ofdm.cp_len);
         }
 
         sd.ofdm_sync.packet_len = 0;
@@ -82,10 +77,6 @@ void rx_back(SharedData &sd, SDRConfig &config)
             if (sd.ofdm.n_subcarriers + sd.ofdm.cp_len < (int)local_raw_buffer.size())
             {
                 local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.n_subcarriers + sd.ofdm.cp_len);
-            }
-            if (sd.ofdm_sync.packet_len > 0 && sd.ofdm_sync.packet_len < (int)local_raw_buffer.size())
-            {
-                local_raw_buffer.erase(local_raw_buffer.begin() + sd.ofdm_sync.packet_len, local_raw_buffer.end());
             }
         }
 
@@ -97,6 +88,13 @@ void rx_back(SharedData &sd, SDRConfig &config)
 
         if (sd.flags.ofdm_eq_enabled)
             local_raw_buffer = ofdm_equalize(local_raw_buffer, sd);
+
+        if (sd.flags.header_dec && sd.flags.cfo_est_enabled && sd.flags.ofdm_fft_enabled){
+            if (sd.ofdm_sync.packet_len > 0 && sd.ofdm_sync.packet_len < (int)local_raw_buffer.size())
+            {
+                local_raw_buffer.erase(local_raw_buffer.begin() + sd.ofdm_sync.packet_len, local_raw_buffer.end());
+            }
+        }
 
         local_symbols = local_raw_buffer;
 
@@ -125,6 +123,24 @@ void rx_back(SharedData &sd, SDRConfig &config)
             lock_guard<mutex> lock(sd.mtx);
             sd.raw_buffer = move(local_raw_buffer);
             sd.rx_bits = demodulator(sd.raw_buffer, mod_type);
+
+            if (!sd.rx_bits.empty() && sd.flags.ofdm_eq_enabled){
+                bool crc_ok = verifyCRC16(sd.rx_bits);
+
+                sd.bler_total_blocks++;
+                if (!crc_ok) {
+                    sd.bler_error_blocks++;
+                }
+
+                if (sd.bler_total_blocks > 0) {
+                    sd.bler_value = (double)sd.bler_error_blocks / sd.bler_total_blocks;
+                }
+            } else {
+                sd.bler_total_blocks = 0;
+                sd.bler_error_blocks = 0;
+                sd.bler_value = 0;
+            }
+
             sd.symbols = move(local_symbols);
             sd.fft.fft_magnitude = local_fft_mag;
         }

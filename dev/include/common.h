@@ -166,7 +166,7 @@ struct SyncResult {
 };
 
 struct Dbuf{
-    static constexpr size_t NUM_BUFFERS = 8;
+    static constexpr size_t NUM_BUFFERS = 16;
     vector<complex<double>> buffers[NUM_BUFFERS];
     mutex buf_mutex[NUM_BUFFERS];
     
@@ -225,6 +225,10 @@ struct SharedData {
     vector<double> ofdm_sym_sync_corr;
     size_t ofdm_sym_sync_head = 0;
 
+    size_t bler_total_blocks = 0;
+    size_t bler_error_blocks = 0;
+    double bler_value = 0.0;
+
     SharedData() {
         timing_offsets.resize(SCOPE_SIZE, 0);
         ofdm_sym_sync_corr.resize(SCOPE_SIZE, 0.0);
@@ -242,6 +246,7 @@ void tx_back(SharedData& sd, SDRConfig &config);
 
 void SDRStream(SharedData& sd, SDRConfig &config);
 
-vector<int16_t> calculateCRC16(const vector<int16_t>& data);
+vector<int16_t> calculateCRC16_fromBits(const vector<int16_t> &bits);
+bool verifyCRC16(vector<int16_t> &received_bits);
 
 #endif

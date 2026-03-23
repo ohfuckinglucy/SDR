@@ -265,6 +265,10 @@ int main() {
         ImGui::Text("DSP Time %f", sd.avg_time);
         ImGui::Text("Stream Time %f", sd.avg_stream_time);
 
+        ImGui::Text("[BLER] Blocks: %ld", sd.bler_total_blocks);
+        ImGui::Text("Errors: %ld", sd.bler_error_blocks);
+        ImGui::Text("Rate %f", (sd.bler_value * 100.0));
+
         ImGui::SeparatorText("SDR Config");
 
         float rx_gain = sd.rx_gain;

@@ -54,7 +54,18 @@ void signal_generate(SharedData &sd, SDRConfig &config)
         for (size_t i = 0; i < sd.bits.size(); ++i)
             sd.bits[i] = rand() % 2;
 
-        CRC = calculateCRC16(sd.bits);
+        CRC = calculateCRC16_fromBits(sd.bits);
+
+        for (int16_t bit : CRC) {
+            sd.bits.push_back(bit);
+        }
+
+        size_t remainder = sd.bits.size() % bits_ps;
+        if (remainder != 0) {
+            size_t padding = bits_ps - remainder;
+            for (size_t i = 0; i < padding; ++i)
+                sd.bits.push_back(0);
+        }
 
         vector<complex<double>> symbols = modulator(sd.bits, sd.bits.size(), mod_type);
 
@@ -63,7 +74,7 @@ void signal_generate(SharedData &sd, SDRConfig &config)
             vector<complex<double>> preamble = generate_zc_preamble(sd);
             vector<complex<double>> freq_blocks = insert_pilots(symbols, sd);
             vector<complex<double>> data_signal = ofdm_modulator(freq_blocks, sd);
-            vector<complex<double>> header = generate_header(data_signal.size(), sd);
+            vector<complex<double>> header = generate_header(symbols.size(), sd);
 
             tx_frame.reserve(preamble.size() + data_signal.size());
             tx_frame.insert(tx_frame.end(), preamble.begin(), preamble.end());
@@ -166,41 +177,44 @@ void rebuild_ofdm_plans(SharedData &sd)
     sd.flags.ofdm_config_changed = false;
 }
 
-vector<int16_t> calculateCRC16(const vector<int16_t> &data)
+vector<uint8_t> packBitsToBytes(const vector<int16_t> &bits)
 {
-    int16_t crc = 0;
-    vector<int16_t> crc_bits;
-    crc_bits.reserve(16);
-    int16_t polynomial = 0x1021;
-
     vector<uint8_t> bytes;
-
-    for (size_t i = 0; i < data.size(); i += 8)
+    bytes.reserve((bits.size() + 7) / 8);
+    
+    for (size_t i = 0; i < bits.size(); i += 8)
     {
         uint8_t byte = 0;
-        for (int j = 0; j < 8 && (i + j) < data.size(); ++j)
+        for (int j = 0; j < 8 && (i + j) < bits.size(); ++j)
         {
-            if (data[i + j] != 0)
+            if (bits[i + j] != 0)
             {
                 byte |= (1 << (7 - j));
             }
         }
         bytes.push_back(byte);
     }
+    
+    return bytes;
+}
 
-    for (uint8_t byte : bytes)
+vector<int16_t> calculateCRC16(const vector<uint8_t> &data)
+{
+    uint16_t crc = 0xFFFF;
+    vector<int16_t> crc_bits;
+    crc_bits.reserve(16);
+    uint16_t polynomial = 0x1021;
+
+    for (uint8_t byte : data)
     {
-        crc &= (int16_t)byte << 8;
+        crc ^= (uint16_t)byte << 8;
+        
         for (int i = 0; i < 8; ++i)
         {
             if (crc & 0x8000)
-            {
                 crc = (crc << 1) ^ polynomial;
-            }
             else
-            {
                 crc <<= 1;
-            }
         }
     }
 
@@ -208,8 +222,42 @@ vector<int16_t> calculateCRC16(const vector<int16_t> &data)
     {
         int16_t bit = (crc >> i) & 1;
         crc_bits.push_back(bit);
-        cout << bit;
     }
 
     return crc_bits;
+}
+
+vector<int16_t> calculateCRC16_fromBits(const vector<int16_t> &bits)
+{
+    vector<uint8_t> bytes = packBitsToBytes(bits);
+    return calculateCRC16(bytes);
+}
+
+bool verifyCRC16(vector<int16_t> &received_bits) {
+    int crc_bits_count = 16;
+    if (received_bits.size() < crc_bits_count) {
+        return false;
+    }
+
+    vector<int16_t> received_crc;
+    received_crc.reserve(crc_bits_count);
+    for (size_t i = received_bits.size() - crc_bits_count; i < received_bits.size(); ++i) {
+        received_crc.push_back(received_bits[i]);
+    }
+
+    received_bits.resize(received_bits.size() - crc_bits_count);
+
+    vector<int16_t> calculated_crc = calculateCRC16_fromBits(received_bits);
+
+    if (received_crc.size() != calculated_crc.size()) {
+        return false;
+    }
+
+    for (size_t i = 0; i < received_crc.size(); ++i) {
+        if (received_crc[i] != calculated_crc[i]) {
+            return false;
+        }
+    }
+
+    return true;
 }
