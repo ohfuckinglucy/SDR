@@ -122,10 +122,10 @@ void rx_back(SharedData &sd, SDRConfig &config)
         {
             lock_guard<mutex> lock(sd.mtx);
             sd.raw_buffer = move(local_raw_buffer);
-            sd.rx_bits = demodulator(sd.raw_buffer, mod_type);
+            sd.interleaved_rx_bits = demodulator(sd.raw_buffer, mod_type);
 
-            if (!sd.rx_bits.empty() && sd.flags.ofdm_eq_enabled){
-                // sd.rx_bits = hamming_decoder_from_Bits(sd.rx_bits);
+            if (!sd.interleaved_rx_bits.empty() && sd.flags.ofdm_eq_enabled){
+                sd.rx_bits = hamming_decoder(sd.interleaved_rx_bits);
 
                 bool crc_ok = verifyCRC16(sd.rx_bits);
 

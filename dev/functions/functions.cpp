@@ -60,16 +60,16 @@ void signal_generate(SharedData &sd, SDRConfig &config)
             sd.bits.push_back(bit);
         }
 
-        // sd.bits = hamming_encoder_from_Bits(sd.bits);
+        vector<int16_t> encoded_bits = hamming_encoder(sd.bits);
 
-        size_t remainder = sd.bits.size() % bits_ps;
+        size_t remainder = encoded_bits.size() % bits_ps;
         if (remainder != 0) {
             size_t padding = bits_ps - remainder;
             for (size_t i = 0; i < padding; ++i)
-                sd.bits.push_back(0);
+                encoded_bits.push_back(0);
         }
 
-        vector<complex<double>> symbols = modulator(sd.bits, sd.bits.size(), mod_type);
+        vector<complex<double>> symbols = modulator(encoded_bits, encoded_bits.size(), mod_type);
 
         if (sd.flags.ofdm_enabled_tx)
         {

@@ -194,6 +194,7 @@ struct SharedData {
 
     vector<int16_t> bits;
     vector<int16_t> rx_bits;
+    vector<int16_t> interleaved_rx_bits;
     vector<int16_t> tx_samples;
     vector<int16_t> last_tx_samples;
     vector<complex<double>> raw_buffer;
@@ -249,12 +250,7 @@ void SDRStream(SharedData& sd, SDRConfig &config);
 vector<int16_t> calculateCRC16_fromBits(const vector<int16_t> &bits);
 bool verifyCRC16(vector<int16_t> &received_bits);
 
-vector<uint32_t> hamming_encoder(vector<uint8_t> &bytes);
-vector<uint8_t> hamming_decoder(vector<uint32_t> &encoded_bytes);
-vector<uint32_t> interleaving(vector<uint32_t> &hamming_encoded);
-vector<uint32_t> deinterleaving(vector<uint32_t> interleaving_block);
-
-vector<int16_t> hamming_encoder_from_Bits(vector<int16_t> &bits);
-vector<int16_t> hamming_decoder_from_Bits(vector<int16_t> &bits);
+vector<int16_t> hamming_encoder(const vector<int16_t> &bits);
+vector<int16_t> hamming_decoder(vector<int16_t> &bits);
 
 #endif

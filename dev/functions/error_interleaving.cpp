@@ -79,205 +79,119 @@ bool verifyCRC16(vector<int16_t> &received_bits) {
     return true;
 }
 
-vector<uint32_t> interleaving(vector<uint32_t> &hamming_encoded){
-    if (hamming_encoded.size() < 1){
-        cerr << "[ERROR] Недостаточный размер!" << endl;
-        return {};
-    }
-
-    int N = hamming_encoded.size();
-    int M = 32;
-
-    vector<uint32_t> interleaving_block(N, 0);
-
-    for (int col = 0; col < M; ++col){
-        for (int row = 0; row < N; ++row){
-            int bit = (hamming_encoded[row] >> (31 - col)) & 1U;
-
-            int i = (col * N + row) / M;
-            int bit_pos = 31 - ((col * N + row) % M);
-
-            if (i < N) {
-                interleaving_block[i] |= (bit << bit_pos);
-            }
-        }
-    }
-
-    return interleaving_block;
-}
-
-vector<uint32_t> deinterleaving(vector<uint32_t> interleaving_block){
-    int N = interleaving_block.size();
-    int M = 32;
-
-    vector<uint32_t> deinterleaving_block(N, 0);
-
-    for (int col = 0; col < M; ++col) {
-        for (int row = 0; row < N; ++row) {
-            int in_i = (col * N + row) / M;
-            int in_bit = 31 - ((col * N + row) % M);
-
-            int bit = (interleaving_block[in_i] >> in_bit) & 1U;
-
-            deinterleaving_block[row] |= (bit << (31 - col));
-        }
-    }
-
-    return deinterleaving_block;
-}
-
-vector<int16_t> hamming_encoder_from_Bits(vector<int16_t> &bits){
+vector<int16_t> hamming_encoder(const vector<int16_t> &bits)
+{
+    // Биты -> байты
     vector<uint8_t> bytes;
-    bytes.reserve((bits.size() + 7) / 8);
-    
     for (size_t i = 0; i < bits.size(); i += 8)
     {
         uint8_t byte = 0;
         for (int j = 0; j < 8 && (i + j) < bits.size(); ++j)
-        {
-            if (bits[i + j] != 0)
-            {
-                byte |= (1U << (7 - j));
-            }
-        }
+            if (bits[i + j]) byte |= (1 << (7 - j));
         bytes.push_back(byte);
     }
 
-    vector<uint32_t> out = hamming_encoder(bytes);
-    out = interleaving(out);
+    while (bytes.size() % 3 != 0) bytes.push_back(0);
 
-    vector<int16_t> out_bits;
-    out_bits.reserve(out.size() * 32);
+    // Хэмминг: байты -> биты (сразу, без uint32_t промежутка)
+    vector<int16_t> encoded;
+    encoded.reserve(bytes.size() / 3 * 30);
 
-    for (auto &byte : out){
-        for (int i = 31; i >= 0; --i){
-            out_bits.push_back((byte >> i) & 1U);
-        }
-    }
-
-
-    return out_bits;
-}
-
-vector<int16_t> hamming_decoder_from_Bits(vector<int16_t> &bits){
-    vector<uint32_t> bytes;
-    bytes.reserve((bits.size() + 31) / 32);
-    
-    for (size_t i = 0; i < bits.size(); i += 32)
+    for (size_t i = 0; i + 2 < bytes.size(); i += 3)
     {
-        uint32_t byte = 0;
-        for (int j = 0; j < 32 && (i + j) < bits.size(); ++j)
-        {
-            if (bits[i + j] != 0)
-            {
-                byte |= (1 << (32 - j));
-            }
-        }
-        bytes.push_back(byte);
-    }
-    bytes = deinterleaving(bytes);
-    vector<uint8_t> out = hamming_decoder(bytes);
-
-    vector<int16_t> out_bits;
-    out_bits.reserve(out.size() * 8);
-
-    for (auto &byte : out){
-        for (int i = 7; i >= 0; --i){
-            out_bits.push_back((byte >> i) & 1U);
-        }
-    }
-
-    return out_bits;
-}
-
-vector<uint32_t> hamming_encoder(vector<uint8_t> &bytes){
-    if (bytes.size() < 1){
-        cerr << "[ERROR] Недостаточно байт!" << endl;
-        return {};
-    }
-
-    while (bytes.size() % 3 != 0) {
-        bytes.push_back(0);
-    }
-
-    vector<uint32_t> encoded_bytes;
-    encoded_bytes.reserve(bytes.size() / 3);
-    
-    for (size_t i = 0; i + 2 < bytes.size(); i += 3){
-        uint32_t data24 = (static_cast<uint32_t>(bytes[i]) << 16) | (static_cast<uint32_t>(bytes[i+1])) << 8 | bytes[i+2];
-
+        uint32_t data24 = (uint32_t(bytes[i]) << 16) | (uint32_t(bytes[i+1]) << 8) | bytes[i+2];
         uint32_t block = 0;
         uint8_t checksum = 0;
         int data_bit_pos = 23;
 
-        for (int j = 1; j <= 30; ++j){
-            if ((j & (j - 1)) == 0){
-                continue;
-            }
-            if (data_bit_pos >= 0){
-                if ((data24 >> data_bit_pos) & 1){
-                    block |= (1 << (j - 1));
+        for (int j = 1; j <= 30; ++j)
+        {
+            if ((j & (j - 1)) == 0) continue;
+            if (data_bit_pos >= 0)
+            {
+                if ((data24 >> data_bit_pos) & 1)
+                {
+                    block |= (1U << (j - 1));
                     checksum ^= j;
                 }
                 data_bit_pos--;
             }
         }
+        for (int k = 0; k < 5; ++k)
+            if ((checksum >> k) & 1)
+                block |= (1U << ((1 << k) - 1));
 
-        for (int k = 0; k < 5; ++k) {
-            if ((checksum >> k) & 1) {
-                block |= (1 << ((1 << k) - 1)); 
-            }
-        }
-
-        encoded_bytes.push_back(block);
+        // Записываем ровно 30 бит
+        for (int b = 29; b >= 0; --b)
+            encoded.push_back((block >> b) & 1);
     }
 
-    return encoded_bytes;
+    // Interleaving прямо на битах (COLS=32, без мусорных бит)
+    const int COLS = 32;
+    int rows = (encoded.size() + COLS - 1) / COLS;
+    encoded.resize(rows * COLS, 0);
+
+    vector<int16_t> interleaved(rows * COLS, 0);
+    for (int col = 0; col < COLS; ++col)
+        for (int row = 0; row < rows; ++row)
+            interleaved[col * rows + row] = encoded[row * COLS + col];
+
+    return interleaved;
 }
 
-vector<uint8_t> hamming_decoder(vector<uint32_t> &encoded_bytes){
-    if (encoded_bytes.size() < 1){
-        cerr << "[ERROR] Недостаточно байт!" << endl;
-        return {};
-    }
+vector<int16_t> hamming_decoder(vector<int16_t> &bits)
+{
+    // Deinterleaving прямо на битах
+    const int COLS = 32;
+    int rows = (bits.size() + COLS - 1) / COLS;
+    bits.resize(rows * COLS, 0);
 
+    vector<int16_t> deinterleaved(rows * COLS, 0);
+    for (int col = 0; col < COLS; ++col)
+        for (int row = 0; row < rows; ++row)
+            deinterleaved[row * COLS + col] = bits[col * rows + row];
+
+    // Хэмминг декодер: биты -> байты
+    int N = deinterleaved.size() / 30;
     vector<uint8_t> decoded_bytes;
-    decoded_bytes.reserve(encoded_bytes.size() * 3);
+    decoded_bytes.reserve(N * 3);
 
-    for (size_t i = 0; i < encoded_bytes.size(); ++i){
-        uint8_t syndrome = 0;
+    for (int i = 0; i < N; ++i)
+    {
         uint32_t block = 0;
+        for (int b = 0; b < 30; ++b)
+            if (deinterleaved[i * 30 + b])
+                block |= (1U << (29 - b));
 
-        int data_bit_pos = 23;
-
-        for (int j = 1; j <= 30; ++j){
-            if ((encoded_bytes[i] >> (j - 1)) & 1){
+        uint8_t syndrome = 0;
+        for (int j = 1; j <= 30; ++j)
+            if ((block >> (j - 1)) & 1)
                 syndrome ^= j;
-            }
-        }
 
-        if (syndrome == 0){
-            cerr << "[DEBUG] OK" << endl;
-        } else{
-            encoded_bytes[i] ^= (1U << (syndrome - 1));
-        }
+        if (syndrome != 0 && syndrome <= 30)
+            block ^= (1U << (syndrome - 1));
 
-        for (int j = 1; j <= 30; ++j){
+        uint32_t data24 = 0;
+        int data_bit_pos = 23;
+        for (int j = 1; j <= 30; ++j)
+        {
             if ((j & (j - 1)) == 0) continue;
-
-            if (data_bit_pos < 0) break;
-
-            if ((encoded_bytes[i] >> (j - 1)) & 1){
-                block |= (1U << data_bit_pos);
-            }
+            if ((block >> (j - 1)) & 1)
+                data24 |= (1U << data_bit_pos);
             data_bit_pos--;
         }
 
-
-        decoded_bytes.push_back((block >> 16) & 0xFF);
-        decoded_bytes.push_back((block >> 8) & 0xFF);
-        decoded_bytes.push_back(block & 0xFF); 
+        decoded_bytes.push_back((data24 >> 16) & 0xFF);
+        decoded_bytes.push_back((data24 >> 8) & 0xFF);
+        decoded_bytes.push_back(data24 & 0xFF);
     }
 
-    return decoded_bytes;
+    // Байты -> биты
+    vector<int16_t> out;
+    out.reserve(decoded_bytes.size() * 8);
+    for (auto byte : decoded_bytes)
+        for (int b = 7; b >= 0; --b)
+            out.push_back((byte >> b) & 1);
+
+    return out;
 }
