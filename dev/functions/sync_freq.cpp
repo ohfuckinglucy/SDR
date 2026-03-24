@@ -12,13 +12,11 @@ vector<complex<double>> cfo_est(const vector<complex<double>> &signal, SharedDat
 
     vector<complex<double>> corrected = signal;
 
-    int n_symbols = (signal.size() - sd.ofdm.sym_begin) / sym_len;
-
-    double cumulative_phase = 0.0;
+    int n_symbols = (signal.size()) / sym_len;
 
     for (int sym = 0; sym < n_symbols; sym++)
     {
-        int sym_start = sd.ofdm.sym_begin + sym * sym_len;
+        int sym_start = sym * sym_len;
 
         complex<double> corr = 0;
         for (int k = 0; k < CP; k++)

@@ -160,6 +160,9 @@ vector<complex<double>> ofdm_equalize(const vector<complex<double>>& signal, Sha
 
     if (pilots.empty())
         return result;
+    if (signal.empty()){
+        return result;
+    }
 
     vector<bool> is_pilot(N, false);
     for (auto p : pilots)

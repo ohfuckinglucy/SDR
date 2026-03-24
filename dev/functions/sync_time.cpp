@@ -7,8 +7,8 @@ vector<complex<double>> generate_zc_preamble(SharedData &sd)
 {
     int N = sd.ofdm.n_subcarriers;
     int CP = sd.ofdm.cp_len;
-    int n_zc = 63;
-    int16_t q = 26;
+    int n_zc = 127;
+    int16_t q = 5;
     const complex<double> j(0, 1);
 
     vector<complex<double>> zc;

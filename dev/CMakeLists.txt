@@ -55,6 +55,7 @@ set(APP_SOURCES
     ${FUNC_DIR}/sync_time.cpp
     ${FUNC_DIR}/functions.cpp
     ${FUNC_DIR}/threads.cpp
+    ${FUNC_DIR}/error_interleaving.cpp
 )
 
 set(TX_SOURCES
@@ -66,6 +67,7 @@ set(TX_SOURCES
     ${FUNC_DIR}/sync_time.cpp
     ${FUNC_DIR}/functions.cpp
     ${FUNC_DIR}/threads.cpp
+    ${FUNC_DIR}/error_interleaving.cpp
 )
 
 add_executable(rx.elf ${APP_SOURCES})
