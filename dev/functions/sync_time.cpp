@@ -2,6 +2,7 @@
 #include "ofdm_core.h"
 #include <cmath>
 #include <algorithm>
+#include <immintrin.h>
 
 vector<complex<double>> generate_zc_preamble(SharedData &sd)
 {
@@ -44,37 +45,72 @@ int zc_sync(const vector<complex<double>> &signal, SharedData &sd)
 {
     const auto &ref = sd.ofdm_sync.reference;
     int N = ref.size();
-    if (signal.size() < N)
+    if ((int)signal.size() < N)
         return -1;
 
-    float max_metric = 0.0;
+    double max_metric = 0.0;
     int best_pos = 0;
+
+    const double *ref_ptr = reinterpret_cast<const double*>(ref.data());
+
+    sd.timing_offsets.clear();
 
     for (size_t n = 0; n <= signal.size() - N; ++n)
     {
-        double corr_re = 0, corr_im = 0;
-        double energy = 0;
+        const double *sig_ptr = reinterpret_cast<const double*>(signal.data() + n);
 
-        for (int k = 0; k < N; ++k)
+        __m256d corr_re_vec = _mm256_setzero_pd();
+        __m256d corr_im_vec = _mm256_setzero_pd();
+        __m256d energy_vec  = _mm256_setzero_pd();
+
+        int k = 0;
+        for (; k <= N - 2; k += 2)
         {
-            double rx_re = signal[n + k].real();
-            double rx_im = signal[n + k].imag();
-            double ref_re = ref[k].real();
-            double ref_im = ref[k].imag();
+            __m256d rx  = _mm256_loadu_pd(sig_ptr + 2*k);
+            __m256d rf  = _mm256_loadu_pd(ref_ptr + 2*k);
 
-            corr_re += (rx_re * ref_re + rx_im * ref_im);
-            corr_im += (rx_im * ref_re - rx_re * ref_im);
-            energy += (rx_re * rx_re + rx_im * rx_im);
+            __m256d rx_re = _mm256_unpacklo_pd(rx, rx);
+            __m256d rx_im = _mm256_unpackhi_pd(rx, rx);
+            __m256d rf_re = _mm256_unpacklo_pd(rf, rf);
+            __m256d rf_im = _mm256_unpackhi_pd(rf, rf);
+
+            corr_re_vec = _mm256_add_pd(corr_re_vec,
+                _mm256_add_pd(_mm256_mul_pd(rx_re, rf_re),
+                              _mm256_mul_pd(rx_im, rf_im)));
+
+            corr_im_vec = _mm256_add_pd(corr_im_vec,
+                _mm256_sub_pd(_mm256_mul_pd(rx_im, rf_re),
+                              _mm256_mul_pd(rx_re, rf_im)));
+
+            energy_vec = _mm256_add_pd(energy_vec,
+                _mm256_add_pd(_mm256_mul_pd(rx_re, rx_re),
+                              _mm256_mul_pd(rx_im, rx_im)));
         }
 
-        double metric = (corr_re * corr_re + corr_im * corr_im) / (energy + 1e-12);
+        double tmp[4];
+        _mm256_storeu_pd(tmp, corr_re_vec);
+        double corr_re = tmp[0] + tmp[1] + tmp[2] + tmp[3];
+        _mm256_storeu_pd(tmp, corr_im_vec);
+        double corr_im = tmp[0] + tmp[1] + tmp[2] + tmp[3];
+        _mm256_storeu_pd(tmp, energy_vec);
+        double energy  = tmp[0] + tmp[1] + tmp[2] + tmp[3];
 
-        sd.ofdm_sym_sync_corr[sd.ofdm_sym_sync_head] = (float)metric;
-        sd.ofdm_sym_sync_head = (sd.ofdm_sym_sync_head + 1) % sd.SCOPE_SIZE;
+        for (; k < N; ++k)
+        {
+            double rx_re = signal[n+k].real(), rx_im = signal[n+k].imag();
+            double rf_re = ref[k].real(),      rf_im = ref[k].imag();
+            corr_re += rx_re*rf_re + rx_im*rf_im;
+            corr_im += rx_im*rf_re - rx_re*rf_im;
+            energy  += rx_re*rx_re + rx_im*rx_im;
+        }
+
+        double metric = (corr_re*corr_re + corr_im*corr_im) / (energy + 1e-12);
+
+        sd.timing_offsets.push_back(metric);
 
         if (metric > max_metric)
         {
-            max_metric = (float)metric;
+            max_metric = metric;
             best_pos = (int)n;
         }
     }

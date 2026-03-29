@@ -234,22 +234,22 @@ int main() {
 
         ImGui::End();
 
-        ImGui::Begin("First bits", nullptr, ImGuiWindowFlags_NoCollapse);
+        // ImGui::Begin("First bits", nullptr, ImGuiWindowFlags_NoCollapse);
 
-        int N = min(50, static_cast<int>(sd.bits.size()) / 2);
-        if (N > 0) {
-            ImGui::Text("Idx |   I   |   Q");
-            ImGui::Separator();
-            for (int i = 0; i < N; ++i) {
-                int16_t I = sd.bits[2*i];
-                int16_t Q = sd.bits[2*i + 1];
-                ImGui::Text("%3d | %5d | %5d", i, I, Q);
-            }
-        } else {
-            ImGui::Text("No TX samples yet");
-        }
+        // int N = min(50, static_cast<int>(sd.bits.size()) / 2);
+        // if (N > 0) {
+        //     ImGui::Text("Idx |   I   |   Q");
+        //     ImGui::Separator();
+        //     for (int i = 0; i < N; ++i) {
+        //         int16_t I = sd.bits[2*i];
+        //         int16_t Q = sd.bits[2*i + 1];
+        //         ImGui::Text("%3d | %5d | %5d", i, I, Q);
+        //     }
+        // } else {
+        //     ImGui::Text("No TX samples yet");
+        // }
 
-        ImGui::End();
+        // ImGui::End();
 
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);

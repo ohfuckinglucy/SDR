@@ -24,6 +24,7 @@
 #include <chrono>
 #include <fftw3.h>
 #include <queue>
+#include <array>
 #include <condition_variable>
 
 #include <GL/glew.h>
@@ -42,6 +43,28 @@ using namespace std;
 
 struct SharedData;
 
+template<typename T>
+class DoubleBuffer {
+public:
+    void write(const T& data) {
+        bufs_[write_idx_] = data;
+        published_.store(write_idx_, std::memory_order_release);
+        write_idx_ ^= 1;
+    }
+
+    bool read(T& out) {
+        int idx = published_.load(std::memory_order_acquire);
+        if (idx < 0) return false;
+        out = bufs_[idx];
+        return true;
+    }
+
+private:
+    std::array<T, 2> bufs_;
+    std::atomic<int> published_{-1};
+    int write_idx_ = 0;
+};
+
 struct SDRConfig {
     SoapySDRDevice* sdr;
     SoapySDRStream* rxStream;
@@ -54,35 +77,13 @@ struct SDRConfig {
     int16_t* rx_buffer;
 };
 
-struct TED_gardner {
-    bool sym_sync_enabled = false;
-    float BnTs = 1e-20;
-    float Kp = 3.8;
-    int ss_offset = 0;
-    double ss_phase = 0.0;
-    double ss_p1 = 0.0;
-    double ss_p2 = 0.0;
-    size_t ss_last_index = 0;
-    double zeta = 0.70710678118;
-    static constexpr int Nsp = 10;
-    vector<int> TED_offsets;
-};
-
 struct Flags {
     atomic<bool> g_running{false};
-    bool upsampling_enabled = false;
-    bool costas_loop_enabled = false;
-    bool QAM16_costas_loop = false;
-    bool cl_init = false;
-    bool filter_enabled = false;
-    bool tx_filter = false;
     bool loopback_flag = false;
     bool fft_flag = false;
-    bool mf_init = false;
     bool fft_ready = false;
     bool ofdm_enabled = false;
     bool ofdm_enabled_tx = false;
-    bool used_gardner = false;
     bool rx_gain_changed = false;
     bool tx_gain_changed = false;
     bool rx_freq_changed = false;
@@ -101,22 +102,6 @@ struct Flags {
     bool header_dec = false;
     bool ofdm_config_changed = true;
     int modulation_index = 0;
-};
-
-struct FormFilter {
-    int rx_l = 10;
-    int tx_l = 10;
-    vector<complex<double>> mf_delay;
-    complex<double> mf_sum = 0.0;
-    size_t mf_index = 0;
-};
-
-struct CostasLoop {
-    double cl_theta_hat = 0;
-    float cl_Kp = 0.02;
-    float cl_Ki = 0.0001;
-    double cl_integrator = 0;
-    double signal_level = 0.0;
 };
 
 struct Fft_conf {
@@ -148,7 +133,6 @@ struct ofdm_conf {
     int n_subcarriers = 128;
     int cp_len = 32;
     int sig_begin = 0;
-    int sym_begin = 0;
     int num_pilots = 20;
     int guard_dc = 2;
     int guard_edge = 26;
@@ -165,50 +149,39 @@ struct SyncResult {
     vector<complex<double>> reference;
 };
 
-struct Dbuf{
-    static constexpr size_t NUM_BUFFERS = 16;
-    vector<complex<double>> buffers[NUM_BUFFERS];
-    mutex buf_mutex[NUM_BUFFERS];
-    
-    atomic<size_t> write_idx{0};
-    atomic<size_t> read_idx{0};
-    atomic<size_t> filled_count{0};
-    
-    atomic<size_t> overwritten{0};
-    atomic<size_t> underrun{0};
+struct HammingStats {
+    uint64_t blocks_processed = 0;
+    uint64_t blocks_with_errors = 0;
+    uint64_t bits_corrected = 0;
+    uint64_t uncorrectable = 0;
 
-    size_t buffer_size = 1920;
+    uint64_t last_reset_time = 0;
+    
+    std::array<uint32_t, 32> syndrome_hist = {0}; 
 };
 
 struct SharedData {
     mutex mtx;
-    TED_gardner gardner;
     Flags flags;
-    FormFilter form_filter;
-    CostasLoop costas;
     Fft_conf fft;
     device_finder dev_f;
     ofdm_conf ofdm;
     SyncResult ofdm_sync;
-    Dbuf pipe;
+    HammingStats Ham_stats;
+
+    DoubleBuffer<std::vector<std::complex<double>>> pipe;
 
     vector<int16_t> bits;
     vector<int16_t> rx_bits;
     vector<int16_t> interleaved_rx_bits;
     vector<int16_t> tx_samples;
     vector<int16_t> last_tx_samples;
-    vector<complex<double>> raw_buffer;
-    vector<complex<double>> raw_buffer_without_dsp;
+    vector<complex<double>> buffer;
+    vector<complex<double>> buffer_without_dsp;
     vector<complex<double>> symbols;
 
     double avg_time = 0;
     double avg_stream_time = 0;
-
-    vector<complex<double>> scope_buffer;
-    size_t scope_head = 0;
-    bool scope_filled = false;
-    static constexpr size_t SCOPE_SIZE = 1920;
-    size_t last_rx_count = 0;
 
     static constexpr size_t MAX_SAMPLES = 1920 * 2;
     static constexpr size_t MAX_SYMBOLS = 192 * 2;
@@ -221,20 +194,12 @@ struct SharedData {
     double rx_bandwidth = 1.92e6;
     double tx_bandwidth = 1.92e6;
 
-    vector<int> timing_offsets;
-    size_t timing_head = 0;
-    vector<double> ofdm_sym_sync_corr;
-    size_t ofdm_sym_sync_head = 0;
+    vector<double> timing_offsets;
 
     size_t bler_total_blocks = 0;
     size_t bler_error_blocks = 0;
     double bler_value = 0.0;
 
-    SharedData() {
-        timing_offsets.resize(SCOPE_SIZE, 0);
-        ofdm_sym_sync_corr.resize(SCOPE_SIZE, 0.0);
-        scope_buffer.reserve(SCOPE_SIZE);
-    }
 };
 
 void update_scope_buffer(vector<complex<double>>& scope_buffer, const vector<complex<double>>& new_samples, size_t SCOPE_DISPLAY_SIZE);
@@ -251,6 +216,6 @@ vector<int16_t> calculateCRC16_fromBits(const vector<int16_t> &bits);
 bool verifyCRC16(vector<int16_t> &received_bits);
 
 vector<int16_t> hamming_encoder(const vector<int16_t> &bits);
-vector<int16_t> hamming_decoder(vector<int16_t> &bits);
+vector<int16_t> hamming_decoder(vector<int16_t> &bits, SharedData &sd);
 
 #endif

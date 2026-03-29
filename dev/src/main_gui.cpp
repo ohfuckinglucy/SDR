@@ -12,11 +12,8 @@ int main() {
 
     SharedData sd;
 
-    sd.form_filter.mf_delay.resize(sd.form_filter.rx_l - 1, 0.0);
-
     thread Back, Stream;
 
-    bool Costas_enabled = false;
     sd.flags.ofdm_config_changed = true;
 
     sd.fft.fft_in = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * sd.fft.FFT_SIZE);
@@ -261,13 +258,31 @@ int main() {
         ImGui::Begin("Control Panel", nullptr,
             ImGuiWindowFlags_NoCollapse);
 
+        ImGui::SeparatorText("Debug");
         ImGui::Text("FPS: %.1f (%.3f ms)", io.Framerate, 1000.0f / io.Framerate);
         ImGui::Text("DSP Time %f", sd.avg_time);
         ImGui::Text("Stream Time %f", sd.avg_stream_time);
-
+        
+        ImGui::SeparatorText("BLER");
         ImGui::Text("[BLER] Blocks: %ld", sd.bler_total_blocks);
         ImGui::Text("Errors: %ld", sd.bler_error_blocks);
         ImGui::Text("Rate %f", (sd.bler_value * 100.0));
+
+        ImGui::SeparatorText("Hamming Stats");
+
+        ImGui::Text("Blocks processed: %lu", sd.Ham_stats.blocks_processed);
+        ImGui::Text("Blocks with errors: %lu (%.2f%%)", 
+            sd.Ham_stats.blocks_with_errors,
+            sd.Ham_stats.blocks_processed > 0 ? 
+                100.0f * sd.Ham_stats.blocks_with_errors / sd.Ham_stats.blocks_processed : 0.0f);
+
+        ImGui::Text("Bits corrected: %lu", sd.Ham_stats.bits_corrected);
+
+        ImGui::Text("Uncorrectable errors: %lu", sd.Ham_stats.uncorrectable);
+
+        if (ImGui::Button("Reset Stats")) {
+            sd.Ham_stats = {};
+        }
 
         ImGui::SeparatorText("SDR Config");
 
@@ -370,10 +385,12 @@ int main() {
             vector<double> plot_real, plot_imag;
             {
                 lock_guard<mutex> lock(sd.mtx);
-                size_t limit = min(sd.symbols.size(), (size_t)500);
+                size_t limit = min(sd.buffer.size(), (size_t)500);
+                plot_real.reserve(sd.buffer.size() / 2);
+                plot_imag.reserve(sd.buffer.size() / 2);
                 for (size_t i = 0; i < limit; ++i) {
-                    plot_real.push_back(sd.symbols[i].real());
-                    plot_imag.push_back(sd.symbols[i].imag());
+                    plot_real.push_back(sd.buffer[i].real());
+                    plot_imag.push_back(sd.buffer[i].imag());
                 }
             }
             if (!plot_real.empty()) {
@@ -389,7 +406,10 @@ int main() {
             vector<double> scope_I, scope_Q;
             {
                 lock_guard<mutex> lock(sd.mtx);
-                for (const auto& val : sd.raw_buffer) {
+                scope_I.reserve(sd.buffer.size() / 2);
+                scope_Q.reserve(sd.buffer.size() / 2);
+                for (const auto& val : sd.buffer) {
+
                     scope_I.push_back(val.real());
                     scope_Q.push_back(val.imag());
                 }
@@ -448,12 +468,12 @@ int main() {
             {
                 lock_guard<mutex> lock(sd.mtx);
                 
-                scope_I.reserve(sd.raw_buffer_without_dsp.size());
-                scope_Q.reserve(sd.raw_buffer_without_dsp.size());
+                scope_I.reserve(sd.buffer_without_dsp.size());
+                scope_Q.reserve(sd.buffer_without_dsp.size());
                 
-                for (size_t i = 0; i < sd.raw_buffer_without_dsp.size(); ++i) {
-                    scope_I.push_back(sd.raw_buffer_without_dsp[i].real());
-                    scope_Q.push_back(sd.raw_buffer_without_dsp[i].imag());
+                for (size_t i = 0; i < sd.buffer_without_dsp.size(); ++i) {
+                    scope_I.push_back(sd.buffer_without_dsp[i].real());
+                    scope_Q.push_back(sd.buffer_without_dsp[i].imag());
                 }
             }
                         
@@ -501,39 +521,9 @@ int main() {
         );
 
         if (ImPlot::BeginPlot("Timing Offsets", ImVec2(-1, 300))) {
-            vector<double> plot_offsets;
-            {
-                lock_guard<mutex> lock(sd.mtx);
-                plot_offsets.resize(sd.SCOPE_SIZE);
-                size_t idx = sd.timing_head;
-                for (size_t i = 0; i < sd.SCOPE_SIZE; i++) {
-                    plot_offsets[i] = sd.timing_offsets[idx];
-                    idx = (idx + 1) % sd.SCOPE_SIZE;
-                }
-            }
-
-            ImPlot::SetupAxesLimits(0, sd.SCOPE_SIZE, 0, *max_element(plot_offsets.begin(), plot_offsets.end()) + 1);
-            ImPlot::PlotLine("Offset", plot_offsets.data(), plot_offsets.size());
+            ImPlot::PlotLine("Offset", sd.timing_offsets.data(), sd.timing_offsets.size());
             ImPlot::EndPlot();
         }
-
-        if (ImPlot::BeginPlot("Symbol Offsets", ImVec2(-1, 300))) {
-            vector<double> plot_offsets;
-            {
-                lock_guard<mutex> lock(sd.mtx);
-                plot_offsets.resize(sd.SCOPE_SIZE);
-                size_t idx = sd.ofdm_sym_sync_head;
-                for (size_t i = 0; i < sd.SCOPE_SIZE; i++) {
-                    plot_offsets[i] = sd.ofdm_sym_sync_corr[idx];
-                    idx = (idx + 1) % sd.SCOPE_SIZE;
-                }
-            }
-
-            ImPlot::SetupAxesLimits(0, sd.SCOPE_SIZE, 0, *max_element(plot_offsets.begin(), plot_offsets.end()) + 1);
-            ImPlot::PlotLine("Offset", plot_offsets.data(), plot_offsets.size());
-            ImPlot::EndPlot();
-        }
-
         ImGui::End();
 
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);

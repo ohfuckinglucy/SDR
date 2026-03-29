@@ -139,7 +139,7 @@ vector<int16_t> hamming_encoder(const vector<int16_t> &bits)
     return interleaved;
 }
 
-vector<int16_t> hamming_decoder(vector<int16_t> &bits)
+vector<int16_t> hamming_decoder(vector<int16_t> &bits, SharedData &sd)
 {
     // Deinterleaving прямо на битах
     const int COLS = 32;
@@ -168,8 +168,17 @@ vector<int16_t> hamming_decoder(vector<int16_t> &bits)
             if ((block >> (j - 1)) & 1)
                 syndrome ^= j;
 
-        if (syndrome != 0 && syndrome <= 30)
+            sd.Ham_stats.blocks_processed++;
+            if (syndrome != 0) {
+                sd.Ham_stats.blocks_with_errors++;
+                if (syndrome < 32) sd.Ham_stats.syndrome_hist[syndrome]++;
+            }
+
+        if (syndrome != 0 && syndrome <= 30){
             block ^= (1U << (syndrome - 1));
+            sd.Ham_stats.bits_corrected++;
+        } else if (syndrome > 30)
+            sd.Ham_stats.uncorrectable++;
 
         uint32_t data24 = 0;
         int data_bit_pos = 23;

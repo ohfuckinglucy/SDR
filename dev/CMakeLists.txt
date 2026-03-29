@@ -96,3 +96,6 @@ target_link_libraries(tx.elf PRIVATE
 )
 
 target_include_directories(tx.elf PRIVATE ${INCLUDE_DIR})
+
+target_compile_options(rx.elf PRIVATE -O3 -mavx2 -ffast-math)
+target_compile_options(tx.elf PRIVATE -O3 -mavx2 -ffast-math)
