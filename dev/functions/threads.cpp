@@ -9,6 +9,7 @@
 void rx_back(SharedData &sd, SDRConfig &config)
 {
     vector<complex<double>> local_raw_buffer;
+    vector<complex<double>> rx_buffer;
 
     vector<double> local_fft_mag(sd.fft.FFT_SIZE);
     sd.ofdm_sync.reference = generate_zc_preamble(sd);
@@ -28,21 +29,26 @@ void rx_back(SharedData &sd, SDRConfig &config)
         else if (sd.flags.modulation_index == 3) mod_type = "QAM::64";
         else mod_type = "QAM::2";
 
-        if (!sd.pipe.read(local_raw_buffer)) {
+        if (!sd.pipe.read(rx_buffer)) {
             asm volatile("pause" ::: "memory");
             continue;
         }
-        
-        sd.buffer_without_dsp = local_raw_buffer;
+
+        sd.buffer_without_dsp = rx_buffer;
 
         if (sd.flags.ofdm_time_est)
         {
-            sd.ofdm.sig_begin = zc_sync(local_raw_buffer, sd);
+            sd.ofdm.sig_begin = zc_sync(rx_buffer, sd);
         }
 
-        if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin && sd.ofdm.sig_begin < (int)local_raw_buffer.size() - (sd.ofdm.n_subcarriers + sd.ofdm.cp_len))
+        if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin && sd.ofdm.sig_begin < (int)rx_buffer.size() - (sd.ofdm.n_subcarriers + sd.ofdm.cp_len))
         {
-            local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.sig_begin + sd.ofdm.n_subcarriers + sd.ofdm.cp_len);
+            local_raw_buffer.clear();
+            local_raw_buffer.insert(local_raw_buffer.end(), rx_buffer.begin() + sd.ofdm.sig_begin, rx_buffer.end());
+            local_raw_buffer.insert(local_raw_buffer.end(), rx_buffer.begin(), rx_buffer.begin() + sd.ofdm.sig_begin);
+            local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.n_subcarriers + sd.ofdm.cp_len);
+        } else {
+            local_raw_buffer = move(rx_buffer);
         }
 
         sd.ofdm_sync.packet_len = 0;
@@ -183,7 +189,6 @@ void SDRStream(SharedData &sd, SDRConfig &config)
 
         int16_t* data_ptr = static_cast<int16_t*>(config.rx_buffer);
         if (!data_ptr) continue;
-
 
         vector<complex<double>> tmp;
         tmp.reserve(sr);
