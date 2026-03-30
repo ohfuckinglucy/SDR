@@ -2,8 +2,8 @@
 #define SYNC_TIME_H
 #include "common.h"
 
-vector<complex<double>> generate_zc_preamble(SharedData& sd);
+vector<complex<float>> generate_zc_preamble(SharedData& sd);
 
-int zc_sync(const vector<complex<double>>& signal, SharedData& sd);
+int zadoff_sync(const std::vector<std::complex<float>> &signal, SharedData &sd);
 
 #endif

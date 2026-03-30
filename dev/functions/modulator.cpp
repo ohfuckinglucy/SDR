@@ -3,19 +3,19 @@
 #include "sync_freq.h"
 #include <algorithm>
 
-vector<complex<double>> modulator(vector<int16_t> bits, int len_bits, string type)
+vector<complex<float>> modulator(vector<int16_t> bits, int len_bits, string type)
 {
-    double I, Q;
+    float I, Q;
 
     if (type == "QAM::2")
     {
-        vector<complex<double>> symbols(len_bits);
+        vector<complex<float>> symbols(len_bits);
         for (int i = 0; i < len_bits; ++i)
         {
             I = 1 - 2 * bits[i];
             Q = 1 - 2 * bits[i];
 
-            symbols[i] = complex<double>(I, Q) / sqrt(2);
+            symbols[i] = complex<float>(I, Q) / sqrtf(2);
         }
         return symbols;
     }
@@ -26,13 +26,13 @@ vector<complex<double>> modulator(vector<int16_t> bits, int len_bits, string typ
             perror("L_Bits % 2 != 0");
             exit(1);
         }
-        vector<complex<double>> symbols(len_bits / 2);
+        vector<complex<float>> symbols(len_bits / 2);
         for (int i = 0; i < len_bits / 2; ++i)
         {
             I = 1 - 2 * bits[2 * i];
             Q = 1 - 2 * bits[2 * i + 1];
 
-            symbols[i] = complex<double>(I, Q) / sqrt(2);
+            symbols[i] = complex<float>(I, Q) / sqrtf(2);
         }
         return symbols;
     }
@@ -43,13 +43,13 @@ vector<complex<double>> modulator(vector<int16_t> bits, int len_bits, string typ
             perror("L_Bits % 4 != 0");
             exit(1);
         }
-        vector<complex<double>> symbols(len_bits / 4);
+        vector<complex<float>> symbols(len_bits / 4);
         for (int i = 0; i < len_bits / 4; ++i)
         {
             I = (1.0 - 2.0 * bits[4 * i]) * (2.0 - (1.0 - 2.0 * bits[4 * i + 2]));
             Q = (1.0 - 2.0 * bits[4 * i + 1]) * (2.0 - (1.0 - 2.0 * bits[4 * i + 3]));
 
-            symbols[i] = complex<double>(I, Q) / sqrt(10);
+            symbols[i] = complex<float>(I, Q) / sqrtf(10);
         }
         return symbols;
     }
@@ -60,13 +60,13 @@ vector<complex<double>> modulator(vector<int16_t> bits, int len_bits, string typ
             cerr << "[ERROR] Modulator, bits not % = 0" << endl;
             exit(1);
         }
-        vector<complex<double>> symbols(len_bits / 6);
+        vector<complex<float>> symbols(len_bits / 6);
         for (int i = 0; i < len_bits / 6; ++i)
         {
             I = (1.0 - 2.0 * bits[6 * i]) * (4 - (1.0 - 2.0 * bits[6 * i + 2]) * (2 - (1.0 - 2.0 * bits[6 * i + 4])));
             Q = (1.0 - 2.0 * bits[6 * i + 1]) * (4 - (1.0 - 2.0 * bits[6 * i + 3]) * (2 - (1.0 - 2.0 * bits[6 * i + 5])));
 
-            symbols[i] = complex<double>(I, Q) / sqrt(42.0);
+            symbols[i] = complex<float>(I, Q) / sqrtf(42.0);
         }
         return symbols;
     }
@@ -77,7 +77,7 @@ vector<complex<double>> modulator(vector<int16_t> bits, int len_bits, string typ
     }
 }
 
-vector<int16_t> demodulator(const vector<complex<double>> &symbols, string type)
+vector<int16_t> demodulator(const vector<complex<float>> &symbols, string type)
 {
     vector<int16_t> bits;
 
@@ -86,7 +86,7 @@ vector<int16_t> demodulator(const vector<complex<double>> &symbols, string type)
         bits.resize(symbols.size());
         for (size_t i = 0; i < symbols.size(); ++i)
         {
-            double val = symbols[i].real();
+            float val = symbols[i].real();
             bits[i] = (val > 0) ? 0 : 1;
         }
     }
@@ -98,8 +98,8 @@ vector<int16_t> demodulator(const vector<complex<double>> &symbols, string type)
         bits.resize(symbols.size() * 2);
         for (size_t i = 0; i < symbols.size(); ++i)
         {
-            double I = symbols[i].real();
-            double Q = symbols[i].imag();
+            float I = symbols[i].real();
+            float Q = symbols[i].imag();
 
             bits[2 * i] = (I > 0) ? 0 : 1;
             bits[2 * i + 1] = (Q > 0) ? 0 : 1;
@@ -111,12 +111,12 @@ vector<int16_t> demodulator(const vector<complex<double>> &symbols, string type)
             return bits;
 
         bits.resize(symbols.size() * 4);
-        double threshold = 2.0 / sqrt(10.0);
+        float threshold = 2.0 / sqrtf(10.0);
 
         for (size_t i = 0; i < symbols.size(); ++i)
         {
-            double I = symbols[i].real();
-            double Q = symbols[i].imag();
+            float I = symbols[i].real();
+            float Q = symbols[i].imag();
 
             bits[4 * i] = (I > 0) ? 0 : 1;
 
@@ -132,15 +132,15 @@ vector<int16_t> demodulator(const vector<complex<double>> &symbols, string type)
             return bits;
 
         bits.resize(symbols.size() * 6);
-        double s42 = sqrt(42.0);
-        double t2 = 2.0 / s42;
-        double t4 = 4.0 / s42;
-        double t6 = 6.0 / s42;
+        float s42 = sqrtf(42.0);
+        float t2 = 2.0 / s42;
+        float t4 = 4.0 / s42;
+        float t6 = 6.0 / s42;
 
         for (size_t i = 0; i < symbols.size(); ++i)
         {
-            double I = symbols[i].real();
-            double Q = symbols[i].imag();
+            float I = symbols[i].real();
+            float Q = symbols[i].imag();
 
             bits[6 * i] = (I > 0) ? 0 : 1;
             bits[6 * i + 2] = (abs(I) > t4) ? 1 : 0;
@@ -159,7 +159,7 @@ vector<int16_t> demodulator(const vector<complex<double>> &symbols, string type)
     return bits;
 }
 
-vector<complex<double>> generate_header(size_t size, SharedData &sd)
+vector<complex<float>> generate_header(size_t size, SharedData &sd)
 {
     uint16_t num = size;
     std::vector<int16_t> binary;
@@ -169,18 +169,18 @@ vector<complex<double>> generate_header(size_t size, SharedData &sd)
         binary.push_back(static_cast<int16_t>(bit));
     }
 
-    vector<complex<double>> preamble_symbols = modulator(binary, binary.size(), "QAM::2");
-    vector<complex<double>> freq_blocks = insert_pilots(preamble_symbols, sd);
-    vector<complex<double>> ofdm_header = ofdm_modulator(freq_blocks, sd);
+    vector<complex<float>> preamble_symbols = modulator(binary, binary.size(), "QAM::2");
+    vector<complex<float>> freq_blocks = insert_pilots(preamble_symbols, sd);
+    vector<complex<float>> ofdm_header = ofdm_modulator(freq_blocks, sd);
 
     cout << size << endl;
 
     return ofdm_header;
 }
 
-uint16_t decode_header(const vector<complex<double>> signal, SharedData &sd)
+uint16_t decode_header(const vector<complex<float>> signal, SharedData &sd)
 {
-    vector<complex<double>> header_frame;
+    vector<complex<float>> header_frame;
 
     size_t N = sd.ofdm.n_subcarriers;
     size_t CP = sd.ofdm.cp_len;

@@ -16,6 +16,7 @@ find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(SoapySDR REQUIRED)
 find_package(PkgConfig REQUIRED)
+find_package(OpenMP REQUIRED)
 
 pkg_check_modules(FFTW3 REQUIRED fftw3)
 
@@ -80,6 +81,7 @@ target_link_libraries(rx.elf PRIVATE
     ${OPENGL_LIBRARIES}
     ${GLEW_LIBRARIES}
     ${SoapySDR_LIBRARIES}
+    OpenMP::OpenMP_CXX
     fftw3
 )
 

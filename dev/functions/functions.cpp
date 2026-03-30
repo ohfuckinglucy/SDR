@@ -8,16 +8,16 @@
 
 void signal_generate(SharedData &sd, SDRConfig &config)
 {
-    vector<complex<double>> local_raw_buffer;
-    vector<complex<double>> local_symbols;
+    vector<complex<float>> local_raw_buffer;
+    vector<complex<float>> local_symbols;
     size_t tx_sent_idx = 0;
     bool tx_active = false;
-    vector<double> local_fft_mag(sd.fft.FFT_SIZE);
+    vector<float> local_fft_mag(sd.fft.FFT_SIZE);
     size_t total_samples = 0;
 
     sd.tx_samples.resize(2 * config.tx_mtu * N_BUFFERS, 0);
 
-    vector<complex<double>> tx_frame;
+    vector<complex<float>> tx_frame;
 
     string mod_type;
     if (sd.flags.modulation_index == 0)
@@ -34,7 +34,7 @@ void signal_generate(SharedData &sd, SDRConfig &config)
     if (sd.flags.tx_regenerate)
     {
         vector<int16_t> CRC;
-        vector<complex<double>> frame;
+        vector<complex<float>> frame;
 
         int bits_ps = bits_per_symbol(mod_type);
 
@@ -44,7 +44,7 @@ void signal_generate(SharedData &sd, SDRConfig &config)
         {
             int data_per_symbol = sd.ofdm.n_subcarriers - sd.ofdm.pilot_idx.size();
 
-            int ofdm_blocks = ceil((double)total_symbols / data_per_symbol);
+            int ofdm_blocks = ceil((float)total_symbols / data_per_symbol);
 
             total_symbols = ofdm_blocks * data_per_symbol;
         }
@@ -69,14 +69,14 @@ void signal_generate(SharedData &sd, SDRConfig &config)
                 encoded_bits.push_back(0);
         }
 
-        vector<complex<double>> symbols = modulator(encoded_bits, encoded_bits.size(), mod_type);
+        vector<complex<float>> symbols = modulator(encoded_bits, encoded_bits.size(), mod_type);
 
         if (sd.flags.ofdm_enabled_tx)
         {
-            vector<complex<double>> preamble = generate_zc_preamble(sd);
-            vector<complex<double>> freq_blocks = insert_pilots(symbols, sd);
-            vector<complex<double>> data_signal = ofdm_modulator(freq_blocks, sd);
-            vector<complex<double>> header = generate_header(symbols.size(), sd);
+            vector<complex<float>> preamble = generate_zc_preamble(sd);
+            vector<complex<float>> freq_blocks = insert_pilots(symbols, sd);
+            vector<complex<float>> data_signal = ofdm_modulator(freq_blocks, sd);
+            vector<complex<float>> header = generate_header(symbols.size(), sd);
 
             tx_frame.reserve(preamble.size() + data_signal.size());
             tx_frame.insert(tx_frame.end(), preamble.begin(), preamble.end());
@@ -96,7 +96,7 @@ void signal_generate(SharedData &sd, SDRConfig &config)
     size_t num_blocks;
     if (sd.flags.loopback_flag && !tx_frame.empty())
     {
-        double scale = 12000.0;
+        float scale = 12000.0;
         if (sd.flags.ofdm_enabled_tx)
             scale = 120000.0;
 

@@ -105,8 +105,8 @@ struct Flags {
 };
 
 struct Fft_conf {
-    vector<complex<double>> fft_buffer;
-    vector<double> fft_magnitude;
+    vector<complex<float>> fft_buffer;
+    vector<float> fft_magnitude;
     static constexpr size_t FFT_SIZE = 1024;
 
     fftw_plan ofdm_fft_plan = nullptr;
@@ -143,10 +143,10 @@ struct ofdm_conf {
 
 struct SyncResult {
     int timing_offset;
-    double cfo_estimate = 0;
+    float cfo_estimate = 0;
     uint16_t packet_len = 0;
 
-    vector<complex<double>> reference;
+    vector<complex<float>> reference;
 };
 
 struct HammingStats {
@@ -169,40 +169,40 @@ struct SharedData {
     SyncResult ofdm_sync;
     HammingStats Ham_stats;
 
-    DoubleBuffer<std::vector<std::complex<double>>> pipe;
+    DoubleBuffer<std::vector<std::complex<float>>> pipe;
 
     vector<int16_t> bits;
     vector<int16_t> rx_bits;
     vector<int16_t> interleaved_rx_bits;
     vector<int16_t> tx_samples;
     vector<int16_t> last_tx_samples;
-    vector<complex<double>> buffer;
-    vector<complex<double>> buffer_without_dsp;
-    vector<complex<double>> symbols;
+    vector<complex<float>> buffer;
+    vector<complex<float>> buffer_without_dsp;
+    vector<complex<float>> symbols;
 
-    double avg_time = 0;
-    double avg_stream_time = 0;
+    float avg_time = 0;
+    float avg_stream_time = 0;
 
     static constexpr size_t MAX_SAMPLES = 1920 * 2;
     static constexpr size_t MAX_SYMBOLS = 192 * 2;
 
     int tx_symbol_count = 256;
-    double tx_gain = 30;
-    double rx_gain = 20;
+    float tx_gain = 30;
+    float rx_gain = 20;
     int Threshold = 0;
     int freq = 767000000;
-    double rx_bandwidth = 1.92e6;
-    double tx_bandwidth = 1.92e6;
+    float rx_bandwidth = 1.92e6;
+    float tx_bandwidth = 1.92e6;
 
-    vector<double> timing_offsets;
+    vector<float> timing_offsets;
 
     size_t bler_total_blocks = 0;
     size_t bler_error_blocks = 0;
-    double bler_value = 0.0;
+    float bler_value = 0.0;
 
 };
 
-void update_scope_buffer(vector<complex<double>>& scope_buffer, const vector<complex<double>>& new_samples, size_t SCOPE_DISPLAY_SIZE);
+void update_scope_buffer(vector<complex<float>>& scope_buffer, const vector<complex<float>>& new_samples, size_t SCOPE_DISPLAY_SIZE);
 bool is_guard(int k, SharedData &sd);
 void signal_generate(SharedData& sd, SDRConfig &config);
 void rebuild_ofdm_plans(SharedData& sd);

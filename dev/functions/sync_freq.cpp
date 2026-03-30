@@ -3,14 +3,14 @@
 #include <cmath>
 #include <algorithm>
 
-vector<complex<double>> cfo_est(const vector<complex<double>> &signal, SharedData &sd)
+vector<complex<float>> cfo_est(const vector<complex<float>> &signal, SharedData &sd)
 {
     int N = sd.ofdm.n_subcarriers;
     int CP = sd.ofdm.cp_len;
     int sym_len = N + CP;
-    double fs = sd.rx_bandwidth;
+    float fs = sd.rx_bandwidth;
 
-    vector<complex<double>> corrected = signal;
+    vector<complex<float>> corrected = signal;
 
     int n_symbols = (signal.size()) / sym_len;
 
@@ -18,20 +18,20 @@ vector<complex<double>> cfo_est(const vector<complex<double>> &signal, SharedDat
     {
         int sym_start = sym * sym_len;
 
-        complex<double> corr = 0;
+        complex<float> corr = 0;
         for (int k = 0; k < CP; k++)
         {
             corr += conj(corrected[sym_start + k]) * corrected[sym_start + k + N];
         }
 
-        double epsilon = arg(corr) / (2 * M_PI);
-        double delta_f = epsilon * fs / N;
+        float epsilon = arg(corr) / (2 * M_PI);
+        float delta_f = epsilon * fs / N;
 
         for (int k = 0; k < sym_len; k++)
         {
             int n = sym_start + k;
-            double phase = -2 * M_PI * delta_f * k / fs;
-            corrected[n] *= complex<double>(cos(phase), sin(phase));
+            float phase = -2 * M_PI * delta_f * k / fs;
+            corrected[n] *= complex<float>(cos(phase), sin(phase));
         }
 
         sd.ofdm_sync.cfo_estimate = delta_f;

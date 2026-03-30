@@ -17,7 +17,7 @@ bool is_guard(int k, SharedData &sd){
     return false;
 }
 
-vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, SharedData& sd){
+vector<complex<float>> insert_pilots(const vector<complex<float>>& symbols, SharedData& sd){
     sd.ofdm.padding = 0;
     const int N = sd.ofdm.n_subcarriers;
     const int dc = 0;
@@ -32,13 +32,13 @@ vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, Sh
     if (usable <= 0) return {};
 
     size_t num_ofdm = (symbols.size() + usable - 1) / usable;
-    vector<complex<double>> out;
+    vector<complex<float>> out;
     out.reserve(num_ofdm * N);
 
     size_t data_ptr = 0;
 
     for (size_t s = 0; s < num_ofdm; ++s) {
-        vector<complex<double>> block(N, {0.0, 0.0});
+        vector<complex<float>> block(N, {0.0, 0.0});
 
         for (int k = 0; k < N; ++k) {
             if (is_guard(k, sd)) continue;
@@ -60,12 +60,12 @@ vector<complex<double>> insert_pilots(const vector<complex<double>>& symbols, Sh
     return out;
 }
 
-vector<complex<double>> ofdm_modulator(const vector<complex<double>>& freq_symbols, SharedData& sd) {
+vector<complex<float>> ofdm_modulator(const vector<complex<float>>& freq_symbols, SharedData& sd) {
     const int N = sd.ofdm.n_subcarriers;
     const int CP = sd.ofdm.cp_len;
     if (freq_symbols.size() % N != 0) return {};
 
-    vector<complex<double>> ofdm_signal;
+    vector<complex<float>> ofdm_signal;
     ofdm_signal.reserve(freq_symbols.size() + (freq_symbols.size()/N)*CP);
 
     size_t ptr = 0;
@@ -78,7 +78,7 @@ vector<complex<double>> ofdm_modulator(const vector<complex<double>>& freq_symbo
 
         fftw_execute(sd.fft.ofdm_ifft_plan);
 
-        vector<complex<double>> time_sym(N);
+        vector<complex<float>> time_sym(N);
         for (int i = 0; i < N; ++i) time_sym[i] = {sd.fft.ifft_out[i][0] / N, sd.fft.ifft_out[i][1] / N};
 
         time_sym.insert(time_sym.begin(), time_sym.end() - CP, time_sym.end());
@@ -88,12 +88,12 @@ vector<complex<double>> ofdm_modulator(const vector<complex<double>>& freq_symbo
     return ofdm_signal;
 }
 
-vector<complex<double>> discard_cp(vector<complex<double>> signal, SharedData &sd){
+vector<complex<float>> discard_cp(vector<complex<float>> signal, SharedData &sd){
     int begin = 0;
 
-    vector<complex<double>> sym_blocks;
-    vector<complex<double>> result;
-    vector<complex<double>> ofdm_signal;
+    vector<complex<float>> sym_blocks;
+    vector<complex<float>> result;
+    vector<complex<float>> ofdm_signal;
 
     int Pl_len = sd.ofdm.n_subcarriers;
     int CP_len = sd.ofdm.cp_len;
@@ -118,8 +118,8 @@ vector<complex<double>> discard_cp(vector<complex<double>> signal, SharedData &s
         fftw_execute(sd.fft.ofdm_fft_plan);
 
         for (int j = 0; j < Pl_len; ++j) {
-            double re = sd.fft.ofdm_rx_out[j][0] / Pl_len;
-            double im = sd.fft.ofdm_rx_out[j][1] / Pl_len;
+            float re = sd.fft.ofdm_rx_out[j][0] / Pl_len;
+            float im = sd.fft.ofdm_rx_out[j][1] / Pl_len;
             ofdm_signal.emplace_back(re, im);
         }
     }
@@ -151,12 +151,12 @@ void update_pilots(SharedData& sd) {
     }
 }
 
-vector<complex<double>> ofdm_equalize(const vector<complex<double>>& signal, SharedData &sd){
-    vector<complex<double>> result;
+vector<complex<float>> ofdm_equalize(const vector<complex<float>>& signal, SharedData &sd){
+    vector<complex<float>> result;
 
     int N = sd.ofdm.n_subcarriers;
     const auto& pilots = sd.ofdm.pilot_idx;
-    complex<double> known_pilot = {1.0, 0.0};
+    complex<float> known_pilot = {1.0, 0.0};
 
     if (pilots.empty())
         return result;
@@ -170,10 +170,10 @@ vector<complex<double>> ofdm_equalize(const vector<complex<double>>& signal, Sha
             is_pilot[p] = true;
 
     for (size_t i = 0; i + N <= signal.size(); i += N){
-        vector<complex<double>> sym(signal.begin() + i, signal.begin() + i + N);
+        vector<complex<float>> sym(signal.begin() + i, signal.begin() + i + N);
 
-        vector<complex<double>> H(N, {0.0, 0.0});
-        vector<complex<double>> equalized(N);
+        vector<complex<float>> H(N, {0.0, 0.0});
+        vector<complex<float>> equalized(N);
 
         for (auto k : pilots)
             H[k] = sym[k] / known_pilot;
@@ -182,13 +182,13 @@ vector<complex<double>> ofdm_equalize(const vector<complex<double>>& signal, Sha
             int k1 = pilots[p];
             int k2 = pilots[p + 1];
 
-            complex<double> H1 = H[k1];
-            complex<double> H2 = H[k2];
+            complex<float> H1 = H[k1];
+            complex<float> H2 = H[k2];
 
             for (int k = k1 + 1; k < k2; ++k){
                 if (is_guard(k, sd)) continue;
 
-                double alpha = double(k - k1) / double(k2 - k1);
+                float alpha = float(k - k1) / float(k2 - k1);
                 H[k] = H1 + alpha * (H2 - H1);
             }
         }
@@ -211,7 +211,7 @@ vector<complex<double>> ofdm_equalize(const vector<complex<double>>& signal, Sha
                 equalized[k] = sym[k];
         }
 
-        double phase = 0.0;
+        float phase = 0.0;
         int pilot_count = 0;
 
         for (auto p : pilots){
@@ -224,7 +224,7 @@ vector<complex<double>> ofdm_equalize(const vector<complex<double>>& signal, Sha
 
         for (int k = 0; k < N; ++k){
             if (!is_guard(k, sd))
-                equalized[k] *= exp(complex<double>(0, -phase));
+                equalized[k] *= exp(complex<float>(0, -phase));
         }
 
         for (int k = 0; k < N; ++k){

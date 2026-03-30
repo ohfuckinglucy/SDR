@@ -2,25 +2,24 @@
 #include "ofdm_core.h"
 #include <cmath>
 #include <algorithm>
-#include <immintrin.h>
 
-vector<complex<double>> generate_zc_preamble(SharedData &sd)
+vector<complex<float>> generate_zc_preamble(SharedData &sd)
 {
     int N = sd.ofdm.n_subcarriers;
     int CP = sd.ofdm.cp_len;
     int n_zc = 127;
     int16_t q = 5;
-    const complex<double> j(0, 1);
+    const complex<float> j(0, 1);
 
-    vector<complex<double>> zc;
+    vector<complex<float>> zc;
     zc.reserve(n_zc);
     for (int i = 0; i < n_zc; ++i)
     {
-        double phase = -M_PI * q * i * (i + 1) / n_zc;
+        float phase = -M_PI * q * i * (i + 1) / n_zc;
         zc.push_back(exp(j * phase));
     }
 
-    vector<complex<double>> freq(N, {0, 0});
+    vector<complex<float>> freq(N, {0, 0});
     int half_zc = n_zc / 2;
 
     for (int i = 0; i < n_zc; ++i)
@@ -36,84 +35,56 @@ vector<complex<double>> generate_zc_preamble(SharedData &sd)
         freq[idx] = zc[i];
     }
 
-    vector<complex<double>> time_domain = ofdm_modulator(freq, sd);
+    vector<complex<float>> time_domain = ofdm_modulator(freq, sd);
 
     return time_domain;
 }
 
-int zc_sync(const vector<complex<double>> &signal, SharedData &sd)
+int zadoff_sync(const std::vector<std::complex<float>> &signal, SharedData &sd)
 {
-    const auto &ref = sd.ofdm_sync.reference;
-    int N = ref.size();
-    if ((int)signal.size() < N)
+    const auto &zc = sd.ofdm_sync.reference;
+    size_t signal_len = signal.size();
+    size_t zc_len = zc.size();
+
+    if (signal_len < zc_len)
         return -1;
 
-    double max_metric = 0.0;
-    int best_pos = 0;
+    if (sd.timing_offsets.size() != signal_len - zc_len + 1)
+        sd.timing_offsets.resize(signal_len - zc_len + 1);
 
-    const double *ref_ptr = reinterpret_cast<const double*>(ref.data());
+    float max_norm = -1.f;
+    int best_idx = 0;
 
-    sd.timing_offsets.clear();
+    const float *sig_ptr = reinterpret_cast<const float *>(signal.data());
+    const float *zc_ptr = reinterpret_cast<const float *>(zc.data());
 
-    for (size_t n = 0; n <= signal.size() - N; ++n)
+    for (size_t n = 0; n <= signal_len - zc_len; ++n)
     {
-        const double *sig_ptr = reinterpret_cast<const double*>(signal.data() + n);
+        float sum_re = 0.f;
+        float sum_im = 0.f;
 
-        __m256d corr_re_vec = _mm256_setzero_pd();
-        __m256d corr_im_vec = _mm256_setzero_pd();
-        __m256d energy_vec  = _mm256_setzero_pd();
-
-        int k = 0;
-        for (; k <= N - 2; k += 2)
+#pragma omp simd reduction(+ : sum_re, sum_im)
+        for (size_t k = 0; k < zc_len; ++k)
         {
-            __m256d rx  = _mm256_loadu_pd(sig_ptr + 2*k);
-            __m256d rf  = _mm256_loadu_pd(ref_ptr + 2*k);
+            float sig_re = sig_ptr[2 * (n + k)];
+            float sig_im = sig_ptr[2 * (n + k) + 1];
 
-            __m256d rx_re = _mm256_unpacklo_pd(rx, rx);
-            __m256d rx_im = _mm256_unpackhi_pd(rx, rx);
-            __m256d rf_re = _mm256_unpacklo_pd(rf, rf);
-            __m256d rf_im = _mm256_unpackhi_pd(rf, rf);
+            float zc_re = zc_ptr[2 * k];
+            float zc_im = zc_ptr[2 * k + 1];
 
-            corr_re_vec = _mm256_add_pd(corr_re_vec,
-                _mm256_add_pd(_mm256_mul_pd(rx_re, rf_re),
-                              _mm256_mul_pd(rx_im, rf_im)));
-
-            corr_im_vec = _mm256_add_pd(corr_im_vec,
-                _mm256_sub_pd(_mm256_mul_pd(rx_im, rf_re),
-                              _mm256_mul_pd(rx_re, rf_im)));
-
-            energy_vec = _mm256_add_pd(energy_vec,
-                _mm256_add_pd(_mm256_mul_pd(rx_re, rx_re),
-                              _mm256_mul_pd(rx_im, rx_im)));
+            sum_re += sig_re * zc_re + sig_im * zc_im;
+            sum_im += sig_im * zc_re - sig_re * zc_im;
         }
 
-        double tmp[4];
-        _mm256_storeu_pd(tmp, corr_re_vec);
-        double corr_re = tmp[0] + tmp[1] + tmp[2] + tmp[3];
-        _mm256_storeu_pd(tmp, corr_im_vec);
-        double corr_im = tmp[0] + tmp[1] + tmp[2] + tmp[3];
-        _mm256_storeu_pd(tmp, energy_vec);
-        double energy  = tmp[0] + tmp[1] + tmp[2] + tmp[3];
+        float cur_norm = sum_re * sum_re + sum_im * sum_im;
+        sd.timing_offsets[n] = cur_norm;
 
-        for (; k < N; ++k)
+        if (cur_norm > max_norm)
         {
-            double rx_re = signal[n+k].real(), rx_im = signal[n+k].imag();
-            double rf_re = ref[k].real(),      rf_im = ref[k].imag();
-            corr_re += rx_re*rf_re + rx_im*rf_im;
-            corr_im += rx_im*rf_re - rx_re*rf_im;
-            energy  += rx_re*rx_re + rx_im*rx_im;
-        }
-
-        double metric = (corr_re*corr_re + corr_im*corr_im) / (energy + 1e-12);
-
-        sd.timing_offsets.push_back(metric);
-
-        if (metric > max_metric)
-        {
-            max_metric = metric;
-            best_pos = (int)n;
+            max_norm = cur_norm;
+            best_idx = (int)n;
         }
     }
 
-    return best_pos;
+    return best_idx;
 }

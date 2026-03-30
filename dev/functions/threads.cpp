@@ -8,10 +8,10 @@
 
 void rx_back(SharedData &sd, SDRConfig &config)
 {
-    vector<complex<double>> local_raw_buffer;
-    vector<complex<double>> rx_buffer;
+    vector<complex<float>> local_raw_buffer;
+    vector<complex<float>> rx_buffer;
 
-    vector<double> local_fft_mag(sd.fft.FFT_SIZE);
+    vector<float> local_fft_mag(sd.fft.FFT_SIZE);
     sd.ofdm_sync.reference = generate_zc_preamble(sd);
 
     chrono::high_resolution_clock::time_point t_start, t_end;
@@ -23,13 +23,19 @@ void rx_back(SharedData &sd, SDRConfig &config)
     {
         t_start = chrono::high_resolution_clock::now();
         string mod_type;
-        if (sd.flags.modulation_index == 0) mod_type = "QAM::2";
-        else if (sd.flags.modulation_index == 1) mod_type = "QAM::4";
-        else if (sd.flags.modulation_index == 2) mod_type = "QAM::16";
-        else if (sd.flags.modulation_index == 3) mod_type = "QAM::64";
-        else mod_type = "QAM::2";
+        if (sd.flags.modulation_index == 0)
+            mod_type = "QAM::2";
+        else if (sd.flags.modulation_index == 1)
+            mod_type = "QAM::4";
+        else if (sd.flags.modulation_index == 2)
+            mod_type = "QAM::16";
+        else if (sd.flags.modulation_index == 3)
+            mod_type = "QAM::64";
+        else
+            mod_type = "QAM::2";
 
-        if (!sd.pipe.read(rx_buffer)) {
+        if (!sd.pipe.read(rx_buffer))
+        {
             asm volatile("pause" ::: "memory");
             continue;
         }
@@ -38,7 +44,7 @@ void rx_back(SharedData &sd, SDRConfig &config)
 
         if (sd.flags.ofdm_time_est)
         {
-            sd.ofdm.sig_begin = zc_sync(rx_buffer, sd);
+            sd.ofdm.sig_begin = zadoff_sync(rx_buffer, sd);
         }
 
         if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin && sd.ofdm.sig_begin < (int)rx_buffer.size() - (sd.ofdm.n_subcarriers + sd.ofdm.cp_len))
@@ -47,7 +53,9 @@ void rx_back(SharedData &sd, SDRConfig &config)
             local_raw_buffer.insert(local_raw_buffer.end(), rx_buffer.begin() + sd.ofdm.sig_begin, rx_buffer.end());
             local_raw_buffer.insert(local_raw_buffer.end(), rx_buffer.begin(), rx_buffer.begin() + sd.ofdm.sig_begin);
             local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.n_subcarriers + sd.ofdm.cp_len);
-        } else {
+        }
+        else
+        {
             local_raw_buffer = move(rx_buffer);
         }
 
@@ -68,18 +76,19 @@ void rx_back(SharedData &sd, SDRConfig &config)
         if (sd.flags.ofdm_eq_enabled)
             local_raw_buffer = ofdm_equalize(local_raw_buffer, sd);
 
-        if (sd.flags.header_dec && sd.flags.ofdm_fft_enabled && sd.flags.ofdm_eq_enabled){
+        if (sd.flags.header_dec && sd.flags.ofdm_fft_enabled && sd.flags.ofdm_eq_enabled)
+        {
             if (sd.ofdm_sync.packet_len > 0 && sd.ofdm_sync.packet_len < (int)local_raw_buffer.size())
             {
                 local_raw_buffer.erase(local_raw_buffer.begin() + sd.ofdm_sync.packet_len, local_raw_buffer.end());
             }
         }
 
-        size_t n = min(local_raw_buffer.size(), sd.fft.FFT_SIZE);
+        size_t n = min(rx_buffer.size(), sd.fft.FFT_SIZE);
         for (size_t i = 0; i < n; i++)
         {
-            sd.fft.fft_in[i][0] = local_raw_buffer[local_raw_buffer.size() - n + i].real();
-            sd.fft.fft_in[i][1] = local_raw_buffer[local_raw_buffer.size() - n + i].imag();
+            sd.fft.fft_in[i][0] = rx_buffer[rx_buffer.size() - n + i].real();
+            sd.fft.fft_in[i][1] = rx_buffer[rx_buffer.size() - n + i].imag();
         }
         for (size_t i = n; i < sd.fft.FFT_SIZE; i++)
         {
@@ -90,8 +99,8 @@ void rx_back(SharedData &sd, SDRConfig &config)
 
         for (size_t i = 0; i < sd.fft.FFT_SIZE; i++)
         {
-            double re = sd.fft.fft_out[i][0];
-            double im = sd.fft.fft_out[i][1];
+            float re = sd.fft.fft_out[i][0];
+            float im = sd.fft.fft_out[i][1];
             local_fft_mag[i] = log10(re * re + im * im + 1e-10);
         }
         sd.flags.fft_ready = true;
@@ -101,26 +110,32 @@ void rx_back(SharedData &sd, SDRConfig &config)
             sd.buffer = move(local_raw_buffer);
             sd.interleaved_rx_bits = demodulator(sd.buffer, mod_type);
 
-            if (!sd.interleaved_rx_bits.empty() && sd.flags.ofdm_eq_enabled){
+            if (!sd.interleaved_rx_bits.empty() && sd.flags.ofdm_eq_enabled)
+            {
                 sd.rx_bits = hamming_decoder(sd.interleaved_rx_bits, ref(sd));
 
                 bool crc_ok = verifyCRC16(sd.rx_bits);
 
                 sd.bler_total_blocks++;
-                if (!crc_ok) {
+                if (!crc_ok)
+                {
                     sd.bler_error_blocks++;
                 }
 
-                if (sd.bler_total_blocks > 0) {
-                    sd.bler_value = (double)sd.bler_error_blocks / sd.bler_total_blocks;
+                if (sd.bler_total_blocks > 0)
+                {
+                    sd.bler_value = (float)sd.bler_error_blocks / sd.bler_total_blocks;
                 }
 
-                if (sd.bler_total_blocks > 10000){
+                if (sd.bler_total_blocks > 10000)
+                {
                     sd.bler_total_blocks = 0;
                     sd.bler_error_blocks = 0;
                     sd.bler_value = 0;
                 }
-            } else {
+            }
+            else
+            {
                 sd.bler_total_blocks = 0;
                 sd.bler_error_blocks = 0;
                 sd.bler_value = 0;
@@ -135,7 +150,7 @@ void rx_back(SharedData &sd, SDRConfig &config)
         total_duration_us += duration;
         frame_count++;
 
-        sd.avg_time = (double)total_duration_us / frame_count;
+        sd.avg_time = (float)total_duration_us / frame_count;
         total_duration_us = 0;
         frame_count = 0;
     }
@@ -187,13 +202,14 @@ void SDRStream(SharedData &sd, SDRConfig &config)
             ++blk;
         }
 
-        int16_t* data_ptr = static_cast<int16_t*>(config.rx_buffer);
-        if (!data_ptr) continue;
+        int16_t *data_ptr = static_cast<int16_t *>(config.rx_buffer);
+        if (!data_ptr)
+            continue;
 
-        vector<complex<double>> tmp;
+        vector<complex<float>> tmp;
         tmp.reserve(sr);
         for (int i = 0; i < sr; ++i)
-            tmp.emplace_back((double)data_ptr[2*i], (double)data_ptr[2*i+1]);
+            tmp.emplace_back((float)data_ptr[2 * i], (float)data_ptr[2 * i + 1]);
         sd.pipe.write(tmp);
 
         t_end = chrono::high_resolution_clock::now();
@@ -202,7 +218,7 @@ void SDRStream(SharedData &sd, SDRConfig &config)
         total_duration_us += duration;
         frame_count++;
 
-        sd.avg_stream_time = (double)total_duration_us / frame_count;
+        sd.avg_stream_time = (float)total_duration_us / frame_count;
         total_duration_us = 0;
         frame_count = 0;
     }

@@ -2,6 +2,6 @@
 #define SYNC_FREQ_H
 #include "common.h"
 
-vector<complex<double>> cfo_est(const vector<complex<double>> &signal, SharedData &sd);
+vector<complex<float>> cfo_est(const vector<complex<float>> &signal, SharedData &sd);
 
 #endif
