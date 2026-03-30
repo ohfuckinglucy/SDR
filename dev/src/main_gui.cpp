@@ -79,6 +79,9 @@ int main() {
             if (sd.flags.g_running) {
                 sd.flags.g_running = false;
 
+                sd.flags.ofdm_fft_enabled;
+                sd.flags.ofdm_eq_enabled = false;
+
                 if (Back.joinable()) Back.join();
                 if (Stream.joinable()) Stream.join();
                 
