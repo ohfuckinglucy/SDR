@@ -4,25 +4,51 @@
 #include "ofdm_core.h"
 #include "sync_time.h"
 #include "sync_freq.h"
+#include "logger.hpp"
 #include <iostream>
 
 void rx_back(SharedData &sd, SDRConfig &config)
 {
-    vector<complex<float>> local_raw_buffer;
-    vector<complex<float>> rx_buffer;
+    std::vector<std::complex<float>> local_raw_buffer;
+    std::vector<std::complex<float>> rx_buffer;
 
-    vector<float> local_fft_mag(sd.fft.FFT_SIZE);
+    std::vector<float> local_fft_mag(sd.fft.FFT_SIZE);
     sd.ofdm_sync.reference = generate_zc_preamble(sd);
 
-    chrono::high_resolution_clock::time_point t_start, t_end;
+    std::chrono::high_resolution_clock::time_point t_start, t_end;
 
     long long total_duration_us = 0;
     int frame_count = 0;
 
+    std::vector<int16_t> bits_qpsk = {0, 0, 0, 1, 1, 0, 1, 1};
+    std::vector<std::complex<float>> constellation_qpsk = modulator(bits_qpsk, 8, "QAM::4");
+
+    std::vector<int16_t> bits_16qam;
+    for (int i = 0; i < 16; ++i)
+    {
+        bits_16qam.push_back((i >> 3) & 1);
+        bits_16qam.push_back((i >> 2) & 1);
+        bits_16qam.push_back((i >> 1) & 1);
+        bits_16qam.push_back(i & 1);
+    }
+    std::vector<std::complex<float>> constellation_16qam =
+        modulator(bits_16qam, 64, "QAM::16");
+
+    std::vector<int16_t> bits_64qam;
+    for (int i = 0; i < 64; ++i)
+    {
+        for (int b = 5; b >= 0; --b)
+        {
+            bits_64qam.push_back((i >> b) & 1);
+        }
+    }
+    std::vector<std::complex<float>> constellation_64qam =
+        modulator(bits_64qam, 384, "QAM::64");
+
     while (sd.flags.g_running)
     {
-        t_start = chrono::high_resolution_clock::now();
-        string mod_type;
+        t_start = std::chrono::high_resolution_clock::now();
+        std::string mod_type;
         if (sd.flags.modulation_index == 0)
             mod_type = "QAM::2";
         else if (sd.flags.modulation_index == 1)
@@ -84,7 +110,22 @@ void rx_back(SharedData &sd, SDRConfig &config)
             }
         }
 
-        size_t n = min(rx_buffer.size(), sd.fft.FFT_SIZE);
+        if (mod_type == "QAM::4")
+        {
+            sd.EVM = calculate_EVM(local_raw_buffer, constellation_qpsk);
+        }
+        else if (mod_type == "QAM::16")
+        {
+            sd.EVM = calculate_EVM(local_raw_buffer, constellation_16qam);
+        }
+        else if (mod_type == "QAM::64")
+        {
+            sd.EVM = calculate_EVM(local_raw_buffer, constellation_64qam);
+        }
+
+        sd.SNR_DB = SNR_calculation(sd.buffer_without_dsp, std::ref(sd));
+
+        size_t n = std::min(rx_buffer.size(), sd.fft.FFT_SIZE);
         for (size_t i = 0; i < n; i++)
         {
             sd.fft.fft_in[i][0] = rx_buffer[rx_buffer.size() - n + i].real();
@@ -106,13 +147,13 @@ void rx_back(SharedData &sd, SDRConfig &config)
         sd.flags.fft_ready = true;
 
         {
-            lock_guard<mutex> lock(sd.mtx);
+            std::lock_guard<std::mutex> lock(sd.mtx);
             sd.buffer = move(local_raw_buffer);
             sd.interleaved_rx_bits = demodulator(sd.buffer, mod_type);
 
             if (!sd.interleaved_rx_bits.empty() && sd.flags.ofdm_eq_enabled)
             {
-                sd.rx_bits = hamming_decoder(sd.interleaved_rx_bits, ref(sd));
+                sd.rx_bits = hamming_decoder(sd.interleaved_rx_bits, std::ref(sd));
 
                 bool crc_ok = verifyCRC16(sd.rx_bits);
 
@@ -144,9 +185,9 @@ void rx_back(SharedData &sd, SDRConfig &config)
             sd.fft.fft_magnitude = local_fft_mag;
         }
 
-        t_end = chrono::high_resolution_clock::now();
+        t_end = std::chrono::high_resolution_clock::now();
 
-        auto duration = chrono::duration_cast<chrono::microseconds>(t_end - t_start).count();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_start).count();
         total_duration_us += duration;
         frame_count++;
 
@@ -160,23 +201,23 @@ void SDRStream(SharedData &sd, SDRConfig &config)
 {
     if (!config.sdr || !config.rxStream || !config.rx_buffer)
     {
-        cerr << "ERROR: SDR config!" << endl;
+        logs::sdr.error("ERROR: SDR config!");
         sd.flags.g_running = false;
         return;
     }
 
     size_t blk = 0;
 
-    chrono::high_resolution_clock::time_point t_start, t_end;
+    std::chrono::high_resolution_clock::time_point t_start, t_end;
     long long total_duration_us = 0;
     int frame_count = 0;
 
     while (sd.flags.g_running)
     {
-        t_start = chrono::high_resolution_clock::now();
+        t_start = std::chrono::high_resolution_clock::now();
 
-        reconfig_sdr(ref(sd), ref(config));
-        signal_generate(ref(sd), ref(config));
+        reconfig_sdr(std::ref(sd), std::ref(config));
+        signal_generate(std::ref(sd), std::ref(config));
 
         size_t frame_len = sd.tx_samples.size() / 2;
         size_t num_blocks = (frame_len + config.tx_mtu - 1) / config.tx_mtu;
@@ -206,15 +247,15 @@ void SDRStream(SharedData &sd, SDRConfig &config)
         if (!data_ptr)
             continue;
 
-        vector<complex<float>> tmp;
+        std::vector<std::complex<float>> tmp;
         tmp.reserve(sr);
         for (int i = 0; i < sr; ++i)
             tmp.emplace_back((float)data_ptr[2 * i], (float)data_ptr[2 * i + 1]);
         sd.pipe.write(tmp);
 
-        t_end = chrono::high_resolution_clock::now();
+        t_end = std::chrono::high_resolution_clock::now();
 
-        auto duration = chrono::duration_cast<chrono::microseconds>(t_end - t_start).count();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_start).count();
         total_duration_us += duration;
         frame_count++;
 

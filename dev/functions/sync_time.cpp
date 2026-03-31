@@ -3,15 +3,15 @@
 #include <cmath>
 #include <algorithm>
 
-vector<complex<float>> generate_zc_preamble(SharedData &sd)
+std::vector<std::complex<float>> generate_zc_preamble(SharedData &sd)
 {
     int N = sd.ofdm.n_subcarriers;
     int CP = sd.ofdm.cp_len;
     int n_zc = 127;
     int16_t q = 5;
-    const complex<float> j(0, 1);
+    const std::complex<float> j(0, 1);
 
-    vector<complex<float>> zc;
+    std::vector<std::complex<float>> zc;
     zc.reserve(n_zc);
     for (int i = 0; i < n_zc; ++i)
     {
@@ -19,7 +19,7 @@ vector<complex<float>> generate_zc_preamble(SharedData &sd)
         zc.push_back(exp(j * phase));
     }
 
-    vector<complex<float>> freq(N, {0, 0});
+    std::vector<std::complex<float>> freq(N, {0, 0});
     int half_zc = n_zc / 2;
 
     for (int i = 0; i < n_zc; ++i)
@@ -35,7 +35,7 @@ vector<complex<float>> generate_zc_preamble(SharedData &sd)
         freq[idx] = zc[i];
     }
 
-    vector<complex<float>> time_domain = ofdm_modulator(freq, sd);
+    std::vector<std::complex<float>> time_domain = ofdm_modulator(freq, sd);
 
     return time_domain;
 }

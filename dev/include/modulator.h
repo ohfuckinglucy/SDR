@@ -2,12 +2,12 @@
 #define MODULATION_H
 #include "common.h"
 
-vector<complex<float>> modulator(vector<int16_t> bits, int len_bits, string type);
-vector<int16_t> demodulator(const vector<complex<float>>& symbols, string type);
+std::vector<std::complex<float>> modulator(std::vector<int16_t> bits, int len_bits, std::string type);
+std::vector<int16_t> demodulator(const std::vector<std::complex<float>>& symbols, std::string type);
 
-vector<complex<float>> generate_header(size_t size, SharedData &sd);
-uint16_t decode_header(const vector<complex<float>> signal, SharedData &sd);
+std::vector<std::complex<float>> generate_header(size_t size, SharedData &sd);
+uint16_t decode_header(const std::vector<std::complex<float>> signal, SharedData &sd);
 
-int bits_per_symbol(string type);
+int bits_per_symbol(std::string type);
 
 #endif

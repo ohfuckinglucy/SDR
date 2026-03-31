@@ -39,22 +39,24 @@ constexpr size_t N_BUFFERS = 4;
 constexpr long long TIMEOUT = 400000;
 constexpr long long TX_DELAY = 8000000;
 
-using namespace std;
-
 struct SharedData;
 
-template<typename T>
-class DoubleBuffer {
+template <typename T>
+class DoubleBuffer
+{
 public:
-    void write(const T& data) {
+    void write(const T &data)
+    {
         bufs_[write_idx_] = data;
         published_.store(write_idx_, std::memory_order_release);
         write_idx_ ^= 1;
     }
 
-    bool read(T& out) {
+    bool read(T &out)
+    {
         int idx = published_.load(std::memory_order_acquire);
-        if (idx < 0) return false;
+        if (idx < 0)
+            return false;
         out = bufs_[idx];
         return true;
     }
@@ -65,20 +67,22 @@ private:
     int write_idx_ = 0;
 };
 
-struct SDRConfig {
-    SoapySDRDevice* sdr;
-    SoapySDRStream* rxStream;
-    SoapySDRStream* txStream;
+struct SDRConfig
+{
+    SoapySDRDevice *sdr;
+    SoapySDRStream *rxStream;
+    SoapySDRStream *txStream;
     int rx_mtu;
     int tx_mtu;
     int sample_rate;
     int carrier_freq;
-    int16_t* tx_buff;
-    int16_t* rx_buffer;
+    int16_t *tx_buff;
+    int16_t *rx_buffer;
 };
 
-struct Flags {
-    atomic<bool> g_running{false};
+struct Flags
+{
+    std::atomic<bool> g_running{false};
     bool loopback_flag = false;
     bool fft_flag = false;
     bool fft_ready = false;
@@ -104,64 +108,70 @@ struct Flags {
     int modulation_index = 0;
 };
 
-struct Fft_conf {
-    vector<complex<float>> fft_buffer;
-    vector<float> fft_magnitude;
+struct Fft_conf
+{
+    std::vector<std::complex<float>> fft_buffer;
+    std::vector<float> fft_magnitude;
     static constexpr size_t FFT_SIZE = 1024;
 
     fftw_plan ofdm_fft_plan = nullptr;
     fftw_plan ofdm_ifft_plan = nullptr;
     fftw_plan spectrum_plan = nullptr;
-    
-    fftw_complex* fft_in = nullptr;
-    fftw_complex* fft_out = nullptr;
-    
-    fftw_complex* ifft_in = nullptr;
-    fftw_complex* ifft_out = nullptr;
 
-    fftw_complex* ofdm_rx_in = nullptr;
-    fftw_complex* ofdm_rx_out = nullptr;
+    fftw_complex *fft_in = nullptr;
+    fftw_complex *fft_out = nullptr;
+
+    fftw_complex *ifft_in = nullptr;
+    fftw_complex *ifft_out = nullptr;
+
+    fftw_complex *ofdm_rx_in = nullptr;
+    fftw_complex *ofdm_rx_out = nullptr;
 };
 
-struct device_finder {
-    string selected_uri;
-    vector<SoapySDRKwargs> pluto_devices;
+struct device_finder
+{
+    std::string selected_uri;
+    std::vector<SoapySDRKwargs> pluto_devices;
     int selected_device_index = 0;
 };
 
-struct ofdm_conf {
+struct ofdm_conf
+{
     int n_subcarriers = 128;
     int cp_len = 32;
     int sig_begin = 0;
     int num_pilots = 20;
     int guard_dc = 2;
     int guard_edge = 26;
-    vector<int8_t> pilot_idx = {8, 16, 24, 40, 48, 56};
+    std::vector<int8_t> pilot_idx = {8, 16, 24, 40, 48, 56};
 
     int padding = 0;
 };
 
-struct SyncResult {
+struct SyncResult
+{
     int timing_offset;
     float cfo_estimate = 0;
     uint16_t packet_len = 0;
 
-    vector<complex<float>> reference;
+    std::vector<std::complex<float>> reference;
 };
 
-struct HammingStats {
+struct HammingStats
+{
     uint64_t blocks_processed = 0;
     uint64_t blocks_with_errors = 0;
     uint64_t bits_corrected = 0;
     uint64_t uncorrectable = 0;
 
     uint64_t last_reset_time = 0;
-    
-    std::array<uint32_t, 32> syndrome_hist = {0}; 
+
+    std::array<uint32_t, 32> syndrome_hist = {0};
 };
 
-struct SharedData {
-    mutex mtx;
+struct SharedData
+{
+    std::mutex mtx;
     Flags flags;
     Fft_conf fft;
     device_finder dev_f;
@@ -171,14 +181,14 @@ struct SharedData {
 
     DoubleBuffer<std::vector<std::complex<float>>> pipe;
 
-    vector<int16_t> bits;
-    vector<int16_t> rx_bits;
-    vector<int16_t> interleaved_rx_bits;
-    vector<int16_t> tx_samples;
-    vector<int16_t> last_tx_samples;
-    vector<complex<float>> buffer;
-    vector<complex<float>> buffer_without_dsp;
-    vector<complex<float>> symbols;
+    std::vector<int16_t> bits;
+    std::vector<int16_t> rx_bits;
+    std::vector<int16_t> interleaved_rx_bits;
+    std::vector<int16_t> tx_samples;
+    std::vector<int16_t> last_tx_samples;
+    std::vector<std::complex<float>> buffer;
+    std::vector<std::complex<float>> buffer_without_dsp;
+    std::vector<std::complex<float>> symbols;
 
     float avg_time = 0;
     float avg_stream_time = 0;
@@ -194,28 +204,33 @@ struct SharedData {
     float rx_bandwidth = 1.92e6;
     float tx_bandwidth = 1.92e6;
 
-    vector<float> timing_offsets;
+    float EVM = 0;
+    float SNR_DB = 0;
+
+    std::vector<float> timing_offsets;
 
     size_t bler_total_blocks = 0;
     size_t bler_error_blocks = 0;
     float bler_value = 0.0;
-
 };
 
-void update_scope_buffer(vector<complex<float>>& scope_buffer, const vector<complex<float>>& new_samples, size_t SCOPE_DISPLAY_SIZE);
+void update_scope_buffer(std::vector<std::complex<float>> &scope_buffer, const std::vector<std::complex<float>> &new_samples, size_t SCOPE_DISPLAY_SIZE);
 bool is_guard(int k, SharedData &sd);
-void signal_generate(SharedData& sd, SDRConfig &config);
-void rebuild_ofdm_plans(SharedData& sd);
+void signal_generate(SharedData &sd, SDRConfig &config);
+void rebuild_ofdm_plans(SharedData &sd);
 
-void rx_back(SharedData& sd, SDRConfig &config);
-void tx_back(SharedData& sd, SDRConfig &config);
+void rx_back(SharedData &sd, SDRConfig &config);
+void tx_back(SharedData &sd, SDRConfig &config);
 
-void SDRStream(SharedData& sd, SDRConfig &config);
+void SDRStream(SharedData &sd, SDRConfig &config);
 
-vector<int16_t> calculateCRC16_fromBits(const vector<int16_t> &bits);
-bool verifyCRC16(vector<int16_t> &received_bits);
+std::vector<int16_t> calculateCRC16_fromBits(const std::vector<int16_t> &bits);
+bool verifyCRC16(std::vector<int16_t> &received_bits);
 
-vector<int16_t> hamming_encoder(const vector<int16_t> &bits);
-vector<int16_t> hamming_decoder(vector<int16_t> &bits, SharedData &sd);
+std::vector<int16_t> hamming_encoder(const std::vector<int16_t> &bits);
+std::vector<int16_t> hamming_decoder(std::vector<int16_t> &bits, SharedData &sd);
+
+float SNR_calculation(const std::vector<std::complex<float>> &signal, SharedData &sd);
+float calculate_EVM(const std::vector<std::complex<float>> &received, const std::vector<std::complex<float>> &constellation);
 
 #endif

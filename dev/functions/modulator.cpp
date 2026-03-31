@@ -2,20 +2,21 @@
 #include "ofdm_core.h"
 #include "sync_freq.h"
 #include <algorithm>
+#include "logger.hpp"
 
-vector<complex<float>> modulator(vector<int16_t> bits, int len_bits, string type)
+std::vector<std::complex<float>> modulator(std::vector<int16_t> bits, int len_bits, std::string type)
 {
     float I, Q;
 
     if (type == "QAM::2")
     {
-        vector<complex<float>> symbols(len_bits);
+        std::vector<std::complex<float>> symbols(len_bits);
         for (int i = 0; i < len_bits; ++i)
         {
             I = 1 - 2 * bits[i];
             Q = 1 - 2 * bits[i];
 
-            symbols[i] = complex<float>(I, Q) / sqrtf(2);
+            symbols[i] = std::complex<float>(I, Q) / sqrtf(2);
         }
         return symbols;
     }
@@ -26,13 +27,13 @@ vector<complex<float>> modulator(vector<int16_t> bits, int len_bits, string type
             perror("L_Bits % 2 != 0");
             exit(1);
         }
-        vector<complex<float>> symbols(len_bits / 2);
+        std::vector<std::complex<float>> symbols(len_bits / 2);
         for (int i = 0; i < len_bits / 2; ++i)
         {
             I = 1 - 2 * bits[2 * i];
             Q = 1 - 2 * bits[2 * i + 1];
 
-            symbols[i] = complex<float>(I, Q) / sqrtf(2);
+            symbols[i] = std::complex<float>(I, Q) / sqrtf(2);
         }
         return symbols;
     }
@@ -43,13 +44,13 @@ vector<complex<float>> modulator(vector<int16_t> bits, int len_bits, string type
             perror("L_Bits % 4 != 0");
             exit(1);
         }
-        vector<complex<float>> symbols(len_bits / 4);
+        std::vector<std::complex<float>> symbols(len_bits / 4);
         for (int i = 0; i < len_bits / 4; ++i)
         {
             I = (1.0 - 2.0 * bits[4 * i]) * (2.0 - (1.0 - 2.0 * bits[4 * i + 2]));
             Q = (1.0 - 2.0 * bits[4 * i + 1]) * (2.0 - (1.0 - 2.0 * bits[4 * i + 3]));
 
-            symbols[i] = complex<float>(I, Q) / sqrtf(10);
+            symbols[i] = std::complex<float>(I, Q) / sqrtf(10);
         }
         return symbols;
     }
@@ -57,16 +58,16 @@ vector<complex<float>> modulator(vector<int16_t> bits, int len_bits, string type
     {
         if (len_bits % 6 != 0)
         {
-            cerr << "[ERROR] Modulator, bits not % = 0" << endl;
+            logs::dsp.warn("[MODULATOR] bits not % = 0");
             exit(1);
         }
-        vector<complex<float>> symbols(len_bits / 6);
+        std::vector<std::complex<float>> symbols(len_bits / 6);
         for (int i = 0; i < len_bits / 6; ++i)
         {
             I = (1.0 - 2.0 * bits[6 * i]) * (4 - (1.0 - 2.0 * bits[6 * i + 2]) * (2 - (1.0 - 2.0 * bits[6 * i + 4])));
             Q = (1.0 - 2.0 * bits[6 * i + 1]) * (4 - (1.0 - 2.0 * bits[6 * i + 3]) * (2 - (1.0 - 2.0 * bits[6 * i + 5])));
 
-            symbols[i] = complex<float>(I, Q) / sqrtf(42.0);
+            symbols[i] = std::complex<float>(I, Q) / sqrtf(42.0);
         }
         return symbols;
     }
@@ -77,9 +78,9 @@ vector<complex<float>> modulator(vector<int16_t> bits, int len_bits, string type
     }
 }
 
-vector<int16_t> demodulator(const vector<complex<float>> &symbols, string type)
+std::vector<int16_t> demodulator(const std::vector<std::complex<float>> &symbols, std::string type)
 {
-    vector<int16_t> bits;
+    std::vector<int16_t> bits;
 
     if (type == "QAM::2")
     {
@@ -159,7 +160,7 @@ vector<int16_t> demodulator(const vector<complex<float>> &symbols, string type)
     return bits;
 }
 
-vector<complex<float>> generate_header(size_t size, SharedData &sd)
+std::vector<std::complex<float>> generate_header(size_t size, SharedData &sd)
 {
     uint16_t num = size;
     std::vector<int16_t> binary;
@@ -169,18 +170,16 @@ vector<complex<float>> generate_header(size_t size, SharedData &sd)
         binary.push_back(static_cast<int16_t>(bit));
     }
 
-    vector<complex<float>> preamble_symbols = modulator(binary, binary.size(), "QAM::2");
-    vector<complex<float>> freq_blocks = insert_pilots(preamble_symbols, sd);
-    vector<complex<float>> ofdm_header = ofdm_modulator(freq_blocks, sd);
-
-    cout << size << endl;
+    std::vector<std::complex<float>> preamble_symbols = modulator(binary, binary.size(), "QAM::2");
+    std::vector<std::complex<float>> freq_blocks = insert_pilots(preamble_symbols, sd);
+    std::vector<std::complex<float>> ofdm_header = ofdm_modulator(freq_blocks, sd);
 
     return ofdm_header;
 }
 
-uint16_t decode_header(const vector<complex<float>> signal, SharedData &sd)
+uint16_t decode_header(const std::vector<std::complex<float>> signal, SharedData &sd)
 {
-    vector<complex<float>> header_frame;
+    std::vector<std::complex<float>> header_frame;
 
     size_t N = sd.ofdm.n_subcarriers;
     size_t CP = sd.ofdm.cp_len;
@@ -190,7 +189,7 @@ uint16_t decode_header(const vector<complex<float>> signal, SharedData &sd)
     header_frame = discard_cp(header_frame, sd);
     header_frame = ofdm_equalize(header_frame, sd);
 
-    vector<int16_t> bits = demodulator(header_frame, "QAM::2");
+    std::vector<int16_t> bits = demodulator(header_frame, "QAM::2");
 
     uint16_t packet_len = 0;
     for (size_t i = 0; i < 16 && i < bits.size(); ++i)
@@ -201,7 +200,7 @@ uint16_t decode_header(const vector<complex<float>> signal, SharedData &sd)
     return packet_len;
 }
 
-int bits_per_symbol(string type)
+int bits_per_symbol(std::string type)
 {
     if (type == "QAM::2")
     {

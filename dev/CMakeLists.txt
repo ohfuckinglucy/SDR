@@ -3,6 +3,8 @@ project(PlutoSDR_Notes CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_BUILD_TYPE Debug)
+set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Директории
 set(THIRD_PARTY_DIR ${PROJECT_SOURCE_DIR}/../thirdparty)
@@ -22,6 +24,7 @@ pkg_check_modules(FFTW3 REQUIRED fftw3)
 
 include_directories(${INCLUDE_DIR})
 include_directories(${SDL2_INCLUDE_DIRS})
+include(FetchContent)
 
 # ImGui
 add_library(imgui STATIC
@@ -46,6 +49,13 @@ add_library(implot STATIC
 target_include_directories(implot PUBLIC ${THIRD_PARTY_DIR}/implot)
 target_link_libraries(implot PRIVATE imgui)
 
+fetchcontent_declare(
+  spdlog
+  GIT_REPOSITORY https://github.com/gabime/spdlog
+  GIT_TAG  v1.17.0
+)
+
+fetchcontent_makeavailable(spdlog)
 
 set(APP_SOURCES
     ${SRC_DIR}/main_gui.cpp
@@ -82,6 +92,7 @@ target_link_libraries(rx.elf PRIVATE
     ${GLEW_LIBRARIES}
     ${SoapySDR_LIBRARIES}
     OpenMP::OpenMP_CXX
+    spdlog::spdlog
     fftw3
 )
 
@@ -94,6 +105,7 @@ target_link_libraries(tx.elf PRIVATE
     ${OPENGL_LIBRARIES}
     ${GLEW_LIBRARIES}
     ${SoapySDR_LIBRARIES}
+    spdlog::spdlog
     fftw3
 )
 

@@ -3,14 +3,14 @@
 #include <cmath>
 #include <algorithm>
 
-vector<complex<float>> cfo_est(const vector<complex<float>> &signal, SharedData &sd)
+std::vector<std::complex<float>> cfo_est(const std::vector<std::complex<float>> &signal, SharedData &sd)
 {
     int N = sd.ofdm.n_subcarriers;
     int CP = sd.ofdm.cp_len;
     int sym_len = N + CP;
     float fs = sd.rx_bandwidth;
 
-    vector<complex<float>> corrected = signal;
+    std::vector<std::complex<float>> corrected = signal;
 
     int n_symbols = (signal.size()) / sym_len;
 
@@ -18,7 +18,7 @@ vector<complex<float>> cfo_est(const vector<complex<float>> &signal, SharedData 
     {
         int sym_start = sym * sym_len;
 
-        complex<float> corr = 0;
+        std::complex<float> corr = 0;
         for (int k = 0; k < CP; k++)
         {
             corr += conj(corrected[sym_start + k]) * corrected[sym_start + k + N];
@@ -31,7 +31,7 @@ vector<complex<float>> cfo_est(const vector<complex<float>> &signal, SharedData 
         {
             int n = sym_start + k;
             float phase = -2 * M_PI * delta_f * k / fs;
-            corrected[n] *= complex<float>(cos(phase), sin(phase));
+            corrected[n] *= std::complex<float>(cos(phase), sin(phase));
         }
 
         sd.ofdm_sync.cfo_estimate = delta_f;

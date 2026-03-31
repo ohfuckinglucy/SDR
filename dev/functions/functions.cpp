@@ -5,21 +5,22 @@
 #include "sync_time.h"
 #include "sync_freq.h"
 #include <iostream>
+#include "logger.hpp"
 
 void signal_generate(SharedData &sd, SDRConfig &config)
 {
-    vector<complex<float>> local_raw_buffer;
-    vector<complex<float>> local_symbols;
+    std::vector<std::complex<float>> local_raw_buffer;
+    std::vector<std::complex<float>> local_symbols;
     size_t tx_sent_idx = 0;
     bool tx_active = false;
-    vector<float> local_fft_mag(sd.fft.FFT_SIZE);
+    std::vector<float> local_fft_mag(sd.fft.FFT_SIZE);
     size_t total_samples = 0;
 
     sd.tx_samples.resize(2 * config.tx_mtu * N_BUFFERS, 0);
 
-    vector<complex<float>> tx_frame;
+    std::vector<std::complex<float>> tx_frame;
 
-    string mod_type;
+    std::string mod_type;
     if (sd.flags.modulation_index == 0)
         mod_type = "QAM::2";
     else if (sd.flags.modulation_index == 1)
@@ -33,8 +34,8 @@ void signal_generate(SharedData &sd, SDRConfig &config)
 
     if (sd.flags.tx_regenerate)
     {
-        vector<int16_t> CRC;
-        vector<complex<float>> frame;
+        std::vector<int16_t> CRC;
+        std::vector<std::complex<float>> frame;
 
         int bits_ps = bits_per_symbol(mod_type);
 
@@ -56,27 +57,29 @@ void signal_generate(SharedData &sd, SDRConfig &config)
 
         CRC = calculateCRC16_fromBits(sd.bits);
 
-        for (int16_t bit : CRC) {
+        for (int16_t bit : CRC)
+        {
             sd.bits.push_back(bit);
         }
 
-        vector<int16_t> encoded_bits = hamming_encoder(sd.bits);
+        std::vector<int16_t> encoded_bits = hamming_encoder(sd.bits);
 
         size_t remainder = encoded_bits.size() % bits_ps;
-        if (remainder != 0) {
+        if (remainder != 0)
+        {
             size_t padding = bits_ps - remainder;
             for (size_t i = 0; i < padding; ++i)
                 encoded_bits.push_back(0);
         }
 
-        vector<complex<float>> symbols = modulator(encoded_bits, encoded_bits.size(), mod_type);
+        std::vector<std::complex<float>> symbols = modulator(encoded_bits, encoded_bits.size(), mod_type);
 
         if (sd.flags.ofdm_enabled_tx)
         {
-            vector<complex<float>> preamble = generate_zc_preamble(sd);
-            vector<complex<float>> freq_blocks = insert_pilots(symbols, sd);
-            vector<complex<float>> data_signal = ofdm_modulator(freq_blocks, sd);
-            vector<complex<float>> header = generate_header(symbols.size(), sd);
+            std::vector<std::complex<float>> preamble = generate_zc_preamble(sd);
+            std::vector<std::complex<float>> freq_blocks = insert_pilots(symbols, sd);
+            std::vector<std::complex<float>> data_signal = ofdm_modulator(freq_blocks, sd);
+            std::vector<std::complex<float>> header = generate_header(symbols.size(), sd);
 
             tx_frame.reserve(preamble.size() + data_signal.size());
             tx_frame.insert(tx_frame.end(), preamble.begin(), preamble.end());
@@ -163,7 +166,7 @@ void rebuild_ofdm_plans(SharedData &sd)
 
     if (!sd.fft.ifft_in || !sd.fft.ifft_out || !sd.fft.ofdm_rx_in || !sd.fft.ofdm_rx_out)
     {
-        cerr << "FFT malloc failed!" << endl;
+        logs::dsp.warn("FFT malloc failed! strerror {} errno {}", strerror(errno), errno);
         exit(1);
     }
 
@@ -172,9 +175,80 @@ void rebuild_ofdm_plans(SharedData &sd)
 
     if (!sd.fft.ofdm_fft_plan || !sd.fft.ofdm_ifft_plan)
     {
-        cerr << "FFT plan creation failed!" << endl;
+        logs::dsp.warn("FFT plan creation failed! strerror {} errno {}", strerror(errno), errno);
         exit(1);
     }
 
     sd.flags.ofdm_config_changed = false;
+}
+
+float SNR_calculation(const std::vector<std::complex<float>> &signal, SharedData &sd)
+{
+    if (sd.ofdm.sig_begin < 0 || sd.ofdm.sig_begin >= signal.size())
+        return 0;
+
+    float sum_noise_power = 0.0f;
+    float sum_signal_power = 0.0f;
+
+    for (size_t i = 0; i < sd.ofdm.sig_begin; ++i)
+    {
+        sum_noise_power += norm(signal[i]);
+    }
+
+    float rms_noise = (sd.ofdm.sig_begin > 0)
+                          ? sqrt(sum_noise_power / sd.ofdm.sig_begin)
+                          : 0.0001f;
+
+    size_t signal_count = signal.size() - sd.ofdm.sig_begin;
+    for (size_t i = sd.ofdm.sig_begin; i < signal.size(); ++i)
+    {
+        sum_signal_power += norm(signal[i]);
+    }
+
+    float rms_signal = (signal_count > 0)
+                           ? sqrt(sum_signal_power / signal_count)
+                           : 0;
+
+    if (rms_noise <= 0.0001f)
+        rms_noise = 0.0001f;
+
+    return 20.0f * log10(rms_signal / rms_noise);
+}
+
+static std::complex<float> find_nearest_symbol(std::complex<float> received, const std::vector<std::complex<float>> &constellation)
+{
+    float min_dist = 1e30f;
+    std::complex<float> best = constellation[0];
+
+    for (const auto &sym : constellation)
+    {
+        float dist = norm(received - sym);
+        if (dist < min_dist)
+        {
+            min_dist = dist;
+            best = sym;
+        }
+    }
+    return best;
+}
+
+float calculate_EVM(const std::vector<std::complex<float>> &received, const std::vector<std::complex<float>> &constellation)
+{
+    if (received.empty() || constellation.empty())
+        return 100.0f;
+
+    float error_power = 0.0f;
+    float signal_power = 0.0f;
+
+    for (const auto &sym : received)
+    {
+        std::complex<float> ideal = find_nearest_symbol(sym, constellation);
+        error_power += norm(sym - ideal);
+        signal_power += norm(ideal);
+    }
+
+    if (signal_power < 1e-10f)
+        return 100.0f;
+
+    return 100.0f * sqrtf(error_power / signal_power);
 }

@@ -2,6 +2,7 @@
 #include "sdr_hw.h"
 #include "modulator.h"
 #include "ofdm_core.h"
+#include "logger.hpp"
 #include <thread>
 
 int main()
@@ -13,7 +14,7 @@ int main()
 
     SharedData sd;
 
-    thread Back, Stream;
+    std::thread Back, Stream;
 
     sd.flags.ofdm_config_changed = true;
 
@@ -28,7 +29,7 @@ int main()
         FFTW_ESTIMATE);
 
     rebuild_ofdm_plans(sd);
-    update_pilots(ref(sd));
+    update_pilots(std::ref(sd));
 
     SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER);
 
@@ -96,8 +97,8 @@ int main()
 
                 sd.flags.g_running = true;
 
-                Back = thread(rx_back, ref(sd), ref(config));
-                Stream = thread(SDRStream, ref(sd), ref(config));
+                Back = std::thread(rx_back, std::ref(sd), std::ref(config));
+                Stream = std::thread(SDRStream, std::ref(sd), std::ref(config));
             }
             else
             {
@@ -126,8 +127,8 @@ int main()
                     {
                         selected_device_index = static_cast<int>(i);
                         {
-                            lock_guard<mutex> lock(sd.mtx);
-                            sd.dev_f.selected_uri = uri ? string(uri) : "";
+                            std::lock_guard<std::mutex> lock(sd.mtx);
+                            sd.dev_f.selected_uri = uri ? std::string(uri) : "";
                         }
                     }
                 }
@@ -136,9 +137,9 @@ int main()
 
             if (ImGui::MenuItem("Start", nullptr, false, !sd.flags.g_running))
             {
-                string uri;
+                std::string uri;
                 {
-                    lock_guard<mutex> lock(sd.mtx);
+                    std::lock_guard<std::mutex> lock(sd.mtx);
                     uri = sd.dev_f.selected_uri;
                 }
 
@@ -149,7 +150,7 @@ int main()
 
                 if (uri.empty())
                 {
-                    cerr << "No device URI available!" << endl;
+                    logs::sdr.info("No device URI available!");
                     continue;
                 }
 
@@ -157,13 +158,13 @@ int main()
 
                 if (!config.sdr)
                 {
-                    cerr << "Failed to initialize SDR device!" << endl;
+                    logs::sdr.info("Failed to initialize SDR device!");
                     continue;
                 }
 
                 sd.flags.g_running = true;
-                Back = thread(rx_back, ref(sd), ref(config));
-                Stream = thread(SDRStream, ref(sd), ref(config));
+                Back = std::thread(rx_back, std::ref(sd), std::ref(config));
+                Stream = std::thread(SDRStream, std::ref(sd), std::ref(config));
             }
             else
             {
@@ -285,7 +286,7 @@ int main()
                     ImGui::SliderInt("Num Pilots", &sd.ofdm.num_pilots, 1, 20);
 
                     if (ImGui::Button("Update Pilots"))
-                        update_pilots(ref(sd));
+                        update_pilots(std::ref(sd));
 
                     ImGui::SliderInt("Guard DC", &sd.ofdm.guard_dc, 1, 20);
                     ImGui::SliderInt("Guard Edge", &sd.ofdm.guard_edge, 1, 20);
@@ -305,10 +306,12 @@ int main()
         ImGui::Text("DSP Time %f", sd.avg_time);
         ImGui::Text("Stream Time %f", sd.avg_stream_time);
 
-        ImGui::SeparatorText("BLER");
+        ImGui::SeparatorText("Stats");
         ImGui::Text("[BLER] Blocks: %ld", sd.bler_total_blocks);
         ImGui::Text("Errors: %ld", sd.bler_error_blocks);
         ImGui::Text("Rate %f", (sd.bler_value * 100.0));
+        ImGui::Text("EVM %f", sd.EVM);
+        ImGui::Text("SNR %f DB", sd.SNR_DB);
 
         ImGui::SeparatorText("Hamming Stats");
 
@@ -391,7 +394,7 @@ int main()
 
         ImGui::Begin("First TX Bits", nullptr, ImGuiWindowFlags_NoCollapse);
 
-        int N_tx = min(50, static_cast<int>(sd.bits.size()) / 2);
+        int N_tx = std::min(50, static_cast<int>(sd.bits.size()) / 2);
         if (N_tx > 0)
         {
             ImGui::Text("Idx |   I   |   Q");
@@ -412,7 +415,7 @@ int main()
 
         ImGui::Begin("First RX Bits", nullptr, ImGuiWindowFlags_NoCollapse);
 
-        int N_rx = min(50, static_cast<int>(sd.rx_bits.size()) / 2);
+        int N_rx = std::min(50, static_cast<int>(sd.rx_bits.size()) / 2);
         if (N_rx > 0)
         {
             ImGui::Text("Idx |   I   |   Q");
@@ -439,10 +442,10 @@ int main()
 
         if (ImPlot::BeginPlot("Constellation", ImVec2(600, 600)))
         {
-            vector<float> plot_real, plot_imag;
+            std::vector<float> plot_real, plot_imag;
             {
-                lock_guard<mutex> lock(sd.mtx);
-                size_t limit = min(sd.buffer.size(), (size_t)500);
+                std::lock_guard<std::mutex> lock(sd.mtx);
+                size_t limit = std::min(sd.buffer.size(), (size_t)500);
                 plot_real.reserve(sd.buffer.size() / 2);
                 plot_imag.reserve(sd.buffer.size() / 2);
                 for (size_t i = 0; i < limit; ++i)
@@ -463,9 +466,9 @@ int main()
 
         if (ImPlot::BeginPlot("RX Scope", ImVec2(-1, 600)))
         {
-            vector<float> scope_I, scope_Q;
+            std::vector<float> scope_I, scope_Q;
             {
-                lock_guard<mutex> lock(sd.mtx);
+                std::lock_guard<std::mutex> lock(sd.mtx);
                 scope_I.reserve(sd.buffer.size() / 2);
                 scope_Q.reserve(sd.buffer.size() / 2);
                 for (const auto &val : sd.buffer)
@@ -497,9 +500,9 @@ int main()
 
         if (ImPlot::BeginPlot("TX Scope", ImVec2(-1, 600)))
         {
-            vector<float> scope_I, scope_Q;
+            std::vector<float> scope_I, scope_Q;
             {
-                lock_guard<mutex> lock(sd.mtx);
+                std::lock_guard<std::mutex> lock(sd.mtx);
 
                 scope_I.reserve(sd.tx_samples.size() / 2);
                 scope_Q.reserve(sd.tx_samples.size() / 2);
@@ -532,9 +535,9 @@ int main()
 
         if (ImPlot::BeginPlot("TX Scope", ImVec2(-1, 600)))
         {
-            vector<float> scope_I, scope_Q;
+            std::vector<float> scope_I, scope_Q;
             {
-                lock_guard<mutex> lock(sd.mtx);
+                std::lock_guard<std::mutex> lock(sd.mtx);
 
                 scope_I.reserve(sd.buffer_without_dsp.size());
                 scope_Q.reserve(sd.buffer_without_dsp.size());
@@ -566,9 +569,9 @@ int main()
                      ImGuiWindowFlags_NoTitleBar);
         if (ImPlot::BeginPlot("Spectre", ImVec2(-1, 400)))
         {
-            vector<float> local_mag;
+            std::vector<float> local_mag;
             {
-                lock_guard<mutex> lock(sd.mtx);
+                std::lock_guard<std::mutex> lock(sd.mtx);
                 if (sd.flags.fft_ready)
                 {
                     local_mag = sd.fft.fft_magnitude;
@@ -576,7 +579,7 @@ int main()
             }
             if (!local_mag.empty())
             {
-                vector<float> shifted(local_mag.size());
+                std::vector<float> shifted(local_mag.size());
                 size_t half = local_mag.size() / 2;
                 for (size_t i = 0; i < half; i++)
                 {

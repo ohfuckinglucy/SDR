@@ -1,4 +1,5 @@
 #include "sdr_hw.h"
+#include "logger.hpp"
 #include <iostream>
 #include <cstring>
 
@@ -12,7 +13,7 @@ SDRConfig SDRinit(char *usb, struct SharedData &sd)
     SoapySDRKwargs_set(&args, "timestamp_every", "1920");
     SoapySDRKwargs_set(&args, "loopback", "0");
 
-    cout << "Opening device: " << usb << endl;
+    logs::sdr.info("Opening device: {}", usb);
 
     config.sdr = SoapySDRDevice_make(&args);
     SoapySDRKwargs_clear(&args);
@@ -48,7 +49,7 @@ SDRConfig SDRinit(char *usb, struct SharedData &sd)
     return config;
 }
 
-vector<SoapySDRKwargs> find_pluto_devices()
+std::vector<SoapySDRKwargs> find_pluto_devices()
 {
     SoapySDRKwargs args = {};
     SoapySDRKwargs_set(&args, "driver", "plutosdr");
