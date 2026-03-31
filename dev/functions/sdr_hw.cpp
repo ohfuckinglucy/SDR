@@ -1,9 +1,8 @@
 #include "sdr_hw.h"
 #include "logger.hpp"
-#include <iostream>
-#include <cstring>
+#include <SoapySDR/Formats.h>
 
-SDRConfig SDRinit(char *usb, struct SharedData &sd)
+SDRConfig SDRinit(char *usb)
 {
     SDRConfig config = {};
     SoapySDRKwargs args = {};

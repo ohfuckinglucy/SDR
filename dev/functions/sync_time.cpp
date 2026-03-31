@@ -1,12 +1,8 @@
-#include "sync_time.h"
 #include "ofdm_core.h"
-#include <cmath>
-#include <algorithm>
 
 std::vector<std::complex<float>> generate_zc_preamble(SharedData &sd)
 {
     int N = sd.ofdm.n_subcarriers;
-    int CP = sd.ofdm.cp_len;
     int n_zc = 127;
     int16_t q = 5;
     const std::complex<float> j(0, 1);

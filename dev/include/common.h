@@ -1,39 +1,39 @@
-#ifndef COMMON_H
-#define COMMON_H
+#pragma once
 
 #include <SoapySDR/Device.h>
-#include <SoapySDR/Formats.h>
-#include <SoapySDR/Types.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <cstdlib>
-#include <complex>
-#include <map>
-#include <string>
-#include <iostream>
-#include <ctime>
-#include <string.h>
-#include <unistd.h>
 #include <vector>
-#include <algorithm>
-#include <cmath>
-#include <thread>
-#include <mutex>
-#include <atomic>
-#include <chrono>
+#include <complex>
 #include <fftw3.h>
-#include <queue>
+#include <atomic>
 #include <array>
-#include <condition_variable>
+#include <mutex>
+// #include <SoapySDR/Formats.h>
+// #include <SoapySDR/Types.h>
+// #include <stdio.h>
+// #include <stdlib.h>
+// #include <cstdint>
+// #include <cstdlib>
+// #include <string>
+// #include <ctime>
+// #include <string.h>
+// #include <unistd.h>
+// #include <algorithm>
+// #include <cmath>
+// #include <thread>
+// #include <mutex>
+// #include <atomic>
+// #include <chrono>
+// #include <queue>
+// #include <array>
+// #include <condition_variable>
 
-#include <GL/glew.h>
-#include <SDL2/SDL.h>
+// #include <GL/glew.h>
+// #include <SDL2/SDL.h>
 
-#include "imgui.h"
-#include "implot.h"
-#include "backends/imgui_impl_sdl2.h"
-#include "backends/imgui_impl_opengl3.h"
+// #include "imgui.h"
+// #include "implot.h"
+// #include "backends/imgui_impl_sdl2.h"
+// #include "backends/imgui_impl_opengl3.h"
 
 constexpr size_t N_BUFFERS = 4;
 constexpr long long TIMEOUT = 400000;
@@ -219,7 +219,7 @@ bool is_guard(int k, SharedData &sd);
 void signal_generate(SharedData &sd, SDRConfig &config);
 void rebuild_ofdm_plans(SharedData &sd);
 
-void rx_back(SharedData &sd, SDRConfig &config);
+void rx_back(SharedData &sd);
 void tx_back(SharedData &sd, SDRConfig &config);
 
 void SDRStream(SharedData &sd, SDRConfig &config);
@@ -232,5 +232,3 @@ std::vector<int16_t> hamming_decoder(std::vector<int16_t> &bits, SharedData &sd)
 
 float SNR_calculation(const std::vector<std::complex<float>> &signal, SharedData &sd);
 float calculate_EVM(const std::vector<std::complex<float>> &received, const std::vector<std::complex<float>> &constellation);
-
-#endif

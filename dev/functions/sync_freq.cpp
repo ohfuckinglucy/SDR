@@ -1,7 +1,4 @@
 #include "sync_freq.h"
-#include "sync_time.h"
-#include <cmath>
-#include <algorithm>
 
 std::vector<std::complex<float>> cfo_est(const std::vector<std::complex<float>> &signal, SharedData &sd)
 {

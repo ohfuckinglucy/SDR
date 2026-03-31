@@ -1,9 +1,15 @@
 #include "common.h"
 #include "sdr_hw.h"
-#include "modulator.h"
 #include "ofdm_core.h"
 #include "logger.hpp"
 #include <thread>
+
+#include <GL/glew.h>
+#include <SDL2/SDL.h>
+#include "imgui.h"
+#include "implot.h"
+#include "backends/imgui_impl_sdl2.h"
+#include "backends/imgui_impl_opengl3.h"
 
 std::thread tx_thread;
 
@@ -51,9 +57,6 @@ int main()
 
     ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init("#version 330");
-
-    int modulation_idx = 0;
-    const char *modulation_types[] = {"QAM::2", "QAM::4", "QAM::16", "QAM::64"};
 
     bool running = true;
 
@@ -209,7 +212,7 @@ int main()
                 }
                 if (!sd.dev_f.selected_uri.empty())
                 {
-                    config = SDRinit(const_cast<char *>(sd.dev_f.selected_uri.c_str()), sd);
+                    config = SDRinit(const_cast<char *>(sd.dev_f.selected_uri.c_str()));
                     if (config.sdr)
                     {
                         sd.flags.g_running = true;

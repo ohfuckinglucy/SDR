@@ -1,18 +1,14 @@
 #include "common.h"
-#include "sdr_hw.h"
 #include "modulator.h"
 #include "ofdm_core.h"
 #include "sync_time.h"
-#include "sync_freq.h"
-#include <iostream>
 #include "logger.hpp"
+#include <unistd.h>
 
 void signal_generate(SharedData &sd, SDRConfig &config)
 {
     std::vector<std::complex<float>> local_raw_buffer;
     std::vector<std::complex<float>> local_symbols;
-    size_t tx_sent_idx = 0;
-    bool tx_active = false;
     std::vector<float> local_fft_mag(sd.fft.FFT_SIZE);
     size_t total_samples = 0;
 
@@ -88,11 +84,9 @@ void signal_generate(SharedData &sd, SDRConfig &config)
         }
         else
         {
-            tx_frame = move(symbols);
+            tx_frame = std::move(symbols);
         }
 
-        tx_sent_idx = 0;
-        tx_active = !tx_frame.empty();
         sd.flags.tx_regenerate = false;
     }
 
@@ -184,13 +178,13 @@ void rebuild_ofdm_plans(SharedData &sd)
 
 float SNR_calculation(const std::vector<std::complex<float>> &signal, SharedData &sd)
 {
-    if (sd.ofdm.sig_begin < 0 || sd.ofdm.sig_begin >= signal.size())
+    if (sd.ofdm.sig_begin < 0 || (size_t)sd.ofdm.sig_begin >= signal.size())
         return 0;
 
     float sum_noise_power = 0.0f;
     float sum_signal_power = 0.0f;
 
-    for (size_t i = 0; i < sd.ofdm.sig_begin; ++i)
+    for (size_t i = 0; i < (size_t)sd.ofdm.sig_begin; ++i)
     {
         sum_noise_power += norm(signal[i]);
     }

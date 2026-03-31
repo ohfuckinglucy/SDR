@@ -1,7 +1,6 @@
 #include "modulator.h"
 #include "ofdm_core.h"
 #include "sync_freq.h"
-#include <algorithm>
 #include "logger.hpp"
 
 std::vector<std::complex<float>> modulator(std::vector<int16_t> bits, int len_bits, std::string type)

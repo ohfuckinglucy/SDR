@@ -1,6 +1,7 @@
 #include "ofdm_core.h"
-#include "modulator.h"
+#include <cstddef>
 #include <algorithm>
+#include <cmath> 
 #include <fftw3.h>
 
 bool is_guard(int k, SharedData &sd)
@@ -22,8 +23,6 @@ std::vector<std::complex<float>> insert_pilots(const std::vector<std::complex<fl
 {
     sd.ofdm.padding = 0;
     const int N = sd.ofdm.n_subcarriers;
-    const int dc = 0;
-    const int nyq = N / 2;
     const auto &pilots = sd.ofdm.pilot_idx;
 
     int usable = 0;
@@ -49,7 +48,7 @@ std::vector<std::complex<float>> insert_pilots(const std::vector<std::complex<fl
             if (is_guard(k, sd))
                 continue;
 
-            if (find(pilots.begin(), pilots.end(), k) != pilots.end())
+            if (std::find(pilots.begin(), pilots.end(), k) != pilots.end())
             {
                 block[k] = {1.0, 0.0};
             }
@@ -93,7 +92,7 @@ std::vector<std::complex<float>> ofdm_modulator(const std::vector<std::complex<f
 
         std::vector<std::complex<float>> time_sym(N);
         for (int i = 0; i < N; ++i)
-            time_sym[i] = {sd.fft.ifft_out[i][0] / N, sd.fft.ifft_out[i][1] / N};
+            time_sym[i] = {static_cast<float>(sd.fft.ifft_out[i][0]) / N, static_cast<float>(sd.fft.ifft_out[i][1]) / N};
 
         time_sym.insert(time_sym.begin(), time_sym.end() - CP, time_sym.end());
         ofdm_signal.insert(ofdm_signal.end(), time_sym.begin(), time_sym.end());
@@ -162,7 +161,7 @@ void update_pilots(SharedData &sd)
             available.push_back(k);
     }
 
-    if (available.size() <= num)
+    if (available.size() <= (size_t)num)
         return;
 
     int step = available.size() / (num + 1);

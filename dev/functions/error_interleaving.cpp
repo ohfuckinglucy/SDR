@@ -53,7 +53,7 @@ std::vector<int16_t> calculateCRC16_fromBits(const std::vector<int16_t> &bits)
 bool verifyCRC16(std::vector<int16_t> &received_bits)
 {
     int crc_bits_count = 16;
-    if (received_bits.size() < crc_bits_count)
+    if (received_bits.size() < (size_t)crc_bits_count)
     {
         return false;
     }

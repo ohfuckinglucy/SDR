@@ -1,9 +1,15 @@
 #include "common.h"
 #include "sdr_hw.h"
-#include "modulator.h"
 #include "ofdm_core.h"
 #include "logger.hpp"
 #include <thread>
+
+#include <GL/glew.h>
+#include <SDL2/SDL.h>
+#include "imgui.h"
+#include "implot.h"
+#include "backends/imgui_impl_sdl2.h"
+#include "backends/imgui_impl_opengl3.h"
 
 int main()
 {
@@ -63,8 +69,6 @@ int main()
     ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init("#version 330");
 
-    ImVec2 plotsize(1600, 600);
-
     bool running = true;
     while (running)
     {
@@ -85,7 +89,6 @@ int main()
             {
                 sd.flags.g_running = false;
 
-                sd.flags.ofdm_fft_enabled;
                 sd.flags.ofdm_eq_enabled = false;
 
                 if (Back.joinable())
@@ -97,7 +100,7 @@ int main()
 
                 sd.flags.g_running = true;
 
-                Back = std::thread(rx_back, std::ref(sd), std::ref(config));
+                Back = std::thread(rx_back, std::ref(sd));
                 Stream = std::thread(SDRStream, std::ref(sd), std::ref(config));
             }
             else
@@ -154,7 +157,7 @@ int main()
                     continue;
                 }
 
-                config = SDRinit(const_cast<char *>(uri.c_str()), sd);
+                config = SDRinit(const_cast<char *>(uri.c_str()));
 
                 if (!config.sdr)
                 {
@@ -163,7 +166,7 @@ int main()
                 }
 
                 sd.flags.g_running = true;
-                Back = std::thread(rx_back, std::ref(sd), std::ref(config));
+                Back = std::thread(rx_back, std::ref(sd));
                 Stream = std::thread(SDRStream, std::ref(sd), std::ref(config));
             }
             else

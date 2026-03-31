@@ -1,3 +1,5 @@
+#pragma once
+
 #include <spdlog/spdlog.h>
 #include <spdlog/fmt/bundled/color.h>
 #include <spdlog/sinks/stdout_color_sinks.h>

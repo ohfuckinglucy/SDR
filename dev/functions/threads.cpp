@@ -5,9 +5,8 @@
 #include "sync_time.h"
 #include "sync_freq.h"
 #include "logger.hpp"
-#include <iostream>
 
-void rx_back(SharedData &sd, SDRConfig &config)
+void rx_back(SharedData &sd)
 {
     std::vector<std::complex<float>> local_raw_buffer;
     std::vector<std::complex<float>> rx_buffer;
@@ -82,7 +81,7 @@ void rx_back(SharedData &sd, SDRConfig &config)
         }
         else
         {
-            local_raw_buffer = move(rx_buffer);
+            local_raw_buffer = std::move(rx_buffer);
         }
 
         sd.ofdm_sync.packet_len = 0;
@@ -148,7 +147,7 @@ void rx_back(SharedData &sd, SDRConfig &config)
 
         {
             std::lock_guard<std::mutex> lock(sd.mtx);
-            sd.buffer = move(local_raw_buffer);
+            sd.buffer = std::move(local_raw_buffer);
             sd.interleaved_rx_bits = demodulator(sd.buffer, mod_type);
 
             if (!sd.interleaved_rx_bits.empty() && sd.flags.ofdm_eq_enabled)
@@ -221,7 +220,6 @@ void SDRStream(SharedData &sd, SDRConfig &config)
 
         size_t frame_len = sd.tx_samples.size() / 2;
         size_t num_blocks = (frame_len + config.tx_mtu - 1) / config.tx_mtu;
-        size_t total_samples = num_blocks * config.tx_mtu;
 
         if (blk < num_blocks)
             blk = 0;
@@ -229,8 +227,6 @@ void SDRStream(SharedData &sd, SDRConfig &config)
         void *rx_buffs[] = {config.rx_buffer};
         int flags = 0;
         long long timeNs = 0;
-
-        size_t buf_count = total_samples / config.tx_mtu;
 
         int sr = SoapySDRDevice_readStream(config.sdr, config.rxStream, rx_buffs, config.rx_mtu, &flags, &timeNs, TIMEOUT);
         if (sd.flags.loopback_flag)
