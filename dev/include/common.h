@@ -1,39 +1,13 @@
 #pragma once
 
 #include <SoapySDR/Device.h>
-#include <vector>
-#include <complex>
 #include <fftw3.h>
-#include <atomic>
+
 #include <array>
+#include <atomic>
+#include <complex>
 #include <mutex>
-// #include <SoapySDR/Formats.h>
-// #include <SoapySDR/Types.h>
-// #include <stdio.h>
-// #include <stdlib.h>
-// #include <cstdint>
-// #include <cstdlib>
-// #include <string>
-// #include <ctime>
-// #include <string.h>
-// #include <unistd.h>
-// #include <algorithm>
-// #include <cmath>
-// #include <thread>
-// #include <mutex>
-// #include <atomic>
-// #include <chrono>
-// #include <queue>
-// #include <array>
-// #include <condition_variable>
-
-// #include <GL/glew.h>
-// #include <SDL2/SDL.h>
-
-// #include "imgui.h"
-// #include "implot.h"
-// #include "backends/imgui_impl_sdl2.h"
-// #include "backends/imgui_impl_opengl3.h"
+#include <vector>
 
 constexpr size_t N_BUFFERS = 4;
 constexpr long long TIMEOUT = 400000;
@@ -41,19 +15,15 @@ constexpr long long TX_DELAY = 8000000;
 
 struct SharedData;
 
-template <typename T>
-class DoubleBuffer
-{
-public:
-    void write(const T &data)
-    {
+template <typename T> class DoubleBuffer {
+  public:
+    void write(const T &data) {
         bufs_[write_idx_] = data;
         published_.store(write_idx_, std::memory_order_release);
         write_idx_ ^= 1;
     }
 
-    bool read(T &out)
-    {
+    bool read(T &out) {
         int idx = published_.load(std::memory_order_acquire);
         if (idx < 0)
             return false;
@@ -61,14 +31,13 @@ public:
         return true;
     }
 
-private:
+  private:
     std::array<T, 2> bufs_;
     std::atomic<int> published_{-1};
     int write_idx_ = 0;
 };
 
-struct SDRConfig
-{
+struct SDRConfig {
     SoapySDRDevice *sdr;
     SoapySDRStream *rxStream;
     SoapySDRStream *txStream;
@@ -80,8 +49,7 @@ struct SDRConfig
     int16_t *rx_buffer;
 };
 
-struct Flags
-{
+struct Flags {
     std::atomic<bool> g_running{false};
     bool loopback_flag = false;
     bool fft_flag = false;
@@ -108,8 +76,7 @@ struct Flags
     int modulation_index = 0;
 };
 
-struct Fft_conf
-{
+struct Fft_conf {
     std::vector<std::complex<float>> fft_buffer;
     std::vector<float> fft_magnitude;
     static constexpr size_t FFT_SIZE = 1024;
@@ -128,15 +95,13 @@ struct Fft_conf
     fftw_complex *ofdm_rx_out = nullptr;
 };
 
-struct device_finder
-{
+struct device_finder {
     std::string selected_uri;
     std::vector<SoapySDRKwargs> pluto_devices;
     int selected_device_index = 0;
 };
 
-struct ofdm_conf
-{
+struct ofdm_conf {
     int n_subcarriers = 128;
     int cp_len = 32;
     int sig_begin = 0;
@@ -148,8 +113,7 @@ struct ofdm_conf
     int padding = 0;
 };
 
-struct SyncResult
-{
+struct SyncResult {
     int timing_offset;
     float cfo_estimate = 0;
     uint16_t packet_len = 0;
@@ -157,8 +121,7 @@ struct SyncResult
     std::vector<std::complex<float>> reference;
 };
 
-struct HammingStats
-{
+struct HammingStats {
     uint64_t blocks_processed = 0;
     uint64_t blocks_with_errors = 0;
     uint64_t bits_corrected = 0;
@@ -169,8 +132,7 @@ struct HammingStats
     std::array<uint32_t, 32> syndrome_hist = {0};
 };
 
-struct SharedData
-{
+struct SharedData {
     std::mutex mtx;
     Flags flags;
     Fft_conf fft;
@@ -214,7 +176,8 @@ struct SharedData
     float bler_value = 0.0;
 };
 
-void update_scope_buffer(std::vector<std::complex<float>> &scope_buffer, const std::vector<std::complex<float>> &new_samples, size_t SCOPE_DISPLAY_SIZE);
+void update_scope_buffer(std::vector<std::complex<float>> &scope_buffer,
+                         const std::vector<std::complex<float>> &new_samples, size_t SCOPE_DISPLAY_SIZE);
 bool is_guard(int k, SharedData &sd);
 void signal_generate(SharedData &sd, SDRConfig &config);
 void rebuild_ofdm_plans(SharedData &sd);
@@ -224,11 +187,6 @@ void tx_back(SharedData &sd, SDRConfig &config);
 
 void SDRStream(SharedData &sd, SDRConfig &config);
 
-std::vector<int16_t> calculateCRC16_fromBits(const std::vector<int16_t> &bits);
-bool verifyCRC16(std::vector<int16_t> &received_bits);
-
-std::vector<int16_t> hamming_encoder(const std::vector<int16_t> &bits);
-std::vector<int16_t> hamming_decoder(std::vector<int16_t> &bits, SharedData &sd);
-
 float SNR_calculation(const std::vector<std::complex<float>> &signal, SharedData &sd);
-float calculate_EVM(const std::vector<std::complex<float>> &received, const std::vector<std::complex<float>> &constellation);
+float calculate_EVM(const std::vector<std::complex<float>> &received,
+                    const std::vector<std::complex<float>> &constellation);

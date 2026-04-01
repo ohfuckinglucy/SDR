@@ -2,3 +2,4 @@
 /dev/build
 /dev/work/__pycache__
 .vscode
+.cache
