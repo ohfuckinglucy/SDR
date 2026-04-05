@@ -24,6 +24,7 @@ int main() {
 
     sd.flags.ofdm_config_changed = true;
     rebuild_ofdm_plans(sd);
+    update_pilots(std::ref(sd));
 
     SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER);
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <SoapySDR/Device.h>
+#include <cstddef>
 #include <fftw3.h>
 
 #include <array>
@@ -15,7 +16,8 @@ constexpr long long TX_DELAY = 8000000;
 
 struct SharedData;
 
-template <typename T> class DoubleBuffer {
+template <typename T>
+class DoubleBuffer {
   public:
     void write(const T &data) {
         bufs_[write_idx_] = data;
@@ -79,7 +81,7 @@ struct Flags {
 struct Fft_conf {
     std::vector<std::complex<float>> fft_buffer;
     std::vector<float> fft_magnitude;
-    static constexpr size_t FFT_SIZE = 1024;
+    static constexpr size_t FFT_SIZE = 1920;
 
     fftw_plan ofdm_fft_plan = nullptr;
     fftw_plan ofdm_ifft_plan = nullptr;
@@ -105,7 +107,7 @@ struct ofdm_conf {
     int n_subcarriers = 128;
     int cp_len = 32;
     int sig_begin = 0;
-    int num_pilots = 20;
+    int num_pilots = 24;
     int guard_dc = 2;
     int guard_edge = 26;
     std::vector<int8_t> pilot_idx = {8, 16, 24, 40, 48, 56};
@@ -114,11 +116,12 @@ struct ofdm_conf {
 };
 
 struct SyncResult {
-    int timing_offset;
+    int timing_offset = -1;
     float cfo_estimate = 0;
     uint16_t packet_len = 0;
 
     std::vector<std::complex<float>> reference;
+    std::vector<std::complex<float>> preamble_freq;
 };
 
 struct HammingStats {
@@ -151,6 +154,12 @@ struct SharedData {
     std::vector<std::complex<float>> buffer;
     std::vector<std::complex<float>> buffer_without_dsp;
     std::vector<std::complex<float>> symbols;
+
+    std::vector<float> SNR_vec;
+    std::vector<float> EVM_vec;
+    int snr_vec_offset = 0;
+    int snr_vec_size = 1920 * 10;
+    size_t frames_processed = 0;
 
     float avg_time = 0;
     float avg_stream_time = 0;

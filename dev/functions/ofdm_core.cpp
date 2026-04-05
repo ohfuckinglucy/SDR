@@ -138,25 +138,46 @@ void update_pilots(SharedData &sd) {
 
     int N = sd.ofdm.n_subcarriers;
     int num = sd.ofdm.num_pilots;
-    if (num <= 0 || N <= 0)
+
+    if (num < 4 || N <= 0)
         return;
 
-    std::vector<int> available;
+    int nyq = N / 2;
 
-    for (int k = 0; k < N; ++k) {
-        if (!is_guard(k, sd))
-            available.push_back(k);
-    }
+    int left_start = sd.ofdm.guard_dc;
+    int left_end   = nyq - sd.ofdm.guard_edge - 1;
 
-    if (available.size() <= (size_t) num)
+    int right_start = nyq + sd.ofdm.guard_edge + 1;
+    int right_end   = N - sd.ofdm.guard_dc - 1;
+
+    sd.ofdm.pilot_idx.push_back(left_start);
+    sd.ofdm.pilot_idx.push_back(left_end);
+    sd.ofdm.pilot_idx.push_back(right_start);
+    sd.ofdm.pilot_idx.push_back(right_end);
+
+    int remaining = num - 4;
+    if (remaining <= 0)
         return;
 
-    int step = available.size() / (num + 1);
+    std::vector<int> inner;
 
-    for (int i = 0; i < num; ++i) {
-        int pos = available[(i + 1) * step];
-        sd.ofdm.pilot_idx.push_back(pos);
+    for (int k = left_start + 1; k < left_end; ++k)
+        inner.push_back(k);
+
+    for (int k = right_start + 1; k < right_end; ++k)
+        inner.push_back(k);
+
+    if (inner.size() <= (size_t)remaining)
+        return;
+
+    int step = inner.size() / (remaining + 1);
+
+    for (int i = 0; i < remaining; ++i) {
+        int idx = inner[(i + 1) * step];
+        sd.ofdm.pilot_idx.push_back(idx);
     }
+
+    std::sort(sd.ofdm.pilot_idx.begin(), sd.ofdm.pilot_idx.end());
 }
 
 std::vector<std::complex<float>> ofdm_equalize(const std::vector<std::complex<float>> &signal, SharedData &sd) {
@@ -194,16 +215,12 @@ std::vector<std::complex<float>> ofdm_equalize(const std::vector<std::complex<fl
             std::complex<float> H2 = H[k2];
 
             for (int k = k1 + 1; k < k2; ++k) {
-                if (is_guard(k, sd))
-                    continue;
-
                 float alpha = float(k - k1) / float(k2 - k1);
                 H[k] = H1 + alpha * (H2 - H1);
             }
         }
 
         for (int k = 0; k < pilots.front(); ++k)
-            if (!is_guard(k, sd))
                 H[k] = H[pilots.front()];
 
         for (int k = pilots.back() + 1; k < N; ++k)
@@ -211,9 +228,6 @@ std::vector<std::complex<float>> ofdm_equalize(const std::vector<std::complex<fl
                 H[k] = H[pilots.back()];
 
         for (int k = 0; k < N; ++k) {
-            if (is_guard(k, sd))
-                continue;
-
             if (abs(H[k]) > 1e-12)
                 equalized[k] = sym[k] / H[k];
             else
@@ -232,7 +246,6 @@ std::vector<std::complex<float>> ofdm_equalize(const std::vector<std::complex<fl
             phase /= pilot_count;
 
         for (int k = 0; k < N; ++k) {
-            if (!is_guard(k, sd))
                 equalized[k] *= exp(std::complex<float>(0, -phase));
         }
 

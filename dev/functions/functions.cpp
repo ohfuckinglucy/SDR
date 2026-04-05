@@ -160,29 +160,26 @@ void rebuild_ofdm_plans(SharedData &sd) {
 }
 
 float SNR_calculation(const std::vector<std::complex<float>> &signal, SharedData &sd) {
-    if (sd.ofdm.sig_begin < 0 || (size_t) sd.ofdm.sig_begin >= signal.size())
-        return 0;
+    const size_t NOISE_WIN = 32;
+    const size_t SIGNAL_WIN = 256;
 
-    float sum_noise_power = 0.0f;
-    float sum_signal_power = 0.0f;
+    if (signal.size() < NOISE_WIN + SIGNAL_WIN)
+        return 0.0f;
 
-    for (size_t i = 0; i < (size_t) sd.ofdm.sig_begin; ++i) {
-        sum_noise_power += norm(signal[i]);
-    }
+    float sum_noise = 0.0f;
+    for (size_t i = 0; i < NOISE_WIN; ++i)
+        sum_noise += norm(signal[i]);
+    float rms_noise = sqrtf(sum_noise / NOISE_WIN);
+    if (rms_noise < 1e-4f)
+        rms_noise = 1e-4f;
 
-    float rms_noise = (sd.ofdm.sig_begin > 0) ? sqrt(sum_noise_power / sd.ofdm.sig_begin) : 0.0001f;
+    size_t sig_start = signal.size() / 4;
+    float sum_signal = 0.0f;
+    for (size_t i = sig_start; i < sig_start + SIGNAL_WIN; ++i)
+        sum_signal += norm(signal[i]);
+    float rms_signal = sqrtf(sum_signal / SIGNAL_WIN);
 
-    size_t signal_count = signal.size() - sd.ofdm.sig_begin;
-    for (size_t i = sd.ofdm.sig_begin; i < signal.size(); ++i) {
-        sum_signal_power += norm(signal[i]);
-    }
-
-    float rms_signal = (signal_count > 0) ? sqrt(sum_signal_power / signal_count) : 0;
-
-    if (rms_noise <= 0.0001f)
-        rms_noise = 0.0001f;
-
-    return 20.0f * log10(rms_signal / rms_noise);
+    return 20.0f * log10f(rms_signal / rms_noise);
 }
 
 static std::complex<float> find_nearest_symbol(std::complex<float> received,

@@ -1,4 +1,5 @@
 #include "ofdm_core.h"
+#include <cstddef>
 
 std::vector<std::complex<float>> generate_zc_preamble(SharedData &sd) {
     int N = sd.ofdm.n_subcarriers;
@@ -27,7 +28,7 @@ std::vector<std::complex<float>> generate_zc_preamble(SharedData &sd) {
             continue;
         freq[idx] = zc[i];
     }
-
+    sd.ofdm_sync.preamble_freq = freq;
     std::vector<std::complex<float>> time_domain = ofdm_modulator(freq, sd);
 
     return time_domain;
@@ -76,4 +77,31 @@ int zadoff_sync(const std::vector<std::complex<float>> &signal, SharedData &sd) 
     }
 
     return best_idx;
+}
+
+std::vector<std::complex<float>> remove_pss(const SharedData &sd, const std::vector<std::complex<float>> &signal) {
+    const size_t ofdm_symbol = static_cast<size_t>(sd.ofdm.n_subcarriers) + static_cast<size_t>(sd.ofdm.cp_len);
+    if (ofdm_symbol == 0)
+        return {};
+
+    const size_t sig_begin = static_cast<size_t>(sd.ofdm.sig_begin);
+    std::vector<std::complex<float>> out_signal;
+
+    if (sig_begin >= signal.size()) {
+        return out_signal;
+    }
+
+    const size_t start_idx = sig_begin + ofdm_symbol;
+    if (start_idx >= signal.size()) {
+        return out_signal;
+    }
+
+    const size_t rem_samples = signal.size() - start_idx;
+    const size_t cnt_symbols = rem_samples / ofdm_symbol;
+    const size_t end_idx = start_idx + cnt_symbols * ofdm_symbol;
+
+    out_signal.reserve(end_idx - start_idx);
+    out_signal.insert(out_signal.end(), signal.begin() + start_idx, signal.begin() + end_idx);
+
+    return out_signal;
 }

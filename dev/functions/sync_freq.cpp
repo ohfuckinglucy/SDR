@@ -15,7 +15,7 @@ std::vector<std::complex<float>> cfo_est(const std::vector<std::complex<float>> 
 
         std::complex<float> corr = 0;
         for (int k = 0; k < CP; k++) {
-            corr += conj(corrected[sym_start + k]) * corrected[sym_start + k + N];
+            corr += conj(signal[sym_start + k]) * signal[sym_start + k + N];
         }
 
         float epsilon = arg(corr) / (2 * M_PI);
@@ -23,7 +23,7 @@ std::vector<std::complex<float>> cfo_est(const std::vector<std::complex<float>> 
 
         for (int k = 0; k < sym_len; k++) {
             int n = sym_start + k;
-            float phase = -2 * M_PI * delta_f * k / fs;
+            float phase = -2 * M_PI * delta_f * n / fs;
             corrected[n] *= std::complex<float>(cos(phase), sin(phase));
         }
 

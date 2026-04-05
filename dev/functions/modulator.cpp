@@ -88,40 +88,46 @@ std::vector<int16_t> demodulator(const std::vector<std::complex<float>> &symbols
             return bits;
 
         bits.resize(symbols.size() * 4);
-        float threshold = 2.0 / sqrtf(10.0);
+        float threshold = 2.0f / sqrtf(10.0f);
 
         for (size_t i = 0; i < symbols.size(); ++i) {
             float I = symbols[i].real();
             float Q = symbols[i].imag();
 
             bits[4 * i] = (I > 0) ? 0 : 1;
-
-            bits[4 * i + 2] = (abs(I) > threshold) ? 1 : 0;
-
+            bits[4 * i + 2] = (fabsf(I) > threshold) ? 1 : 0;
             bits[4 * i + 1] = (Q > 0) ? 0 : 1;
-            bits[4 * i + 3] = (abs(Q) > threshold) ? 1 : 0;
+            bits[4 * i + 3] = (fabsf(Q) > threshold) ? 1 : 0;
         }
     } else if (type == "QAM::64") {
         if (symbols.empty())
             return bits;
 
         bits.resize(symbols.size() * 6);
-        float s42 = sqrtf(42.0);
-        float t2 = 2.0 / s42;
-        float t4 = 4.0 / s42;
-        float t6 = 6.0 / s42;
+
+        const float norm = sqrtf(42.0f);
 
         for (size_t i = 0; i < symbols.size(); ++i) {
-            float I = symbols[i].real();
-            float Q = symbols[i].imag();
+            float I = symbols[i].real() * norm;
+            float Q = symbols[i].imag() * norm;
 
-            bits[6 * i] = (I > 0) ? 0 : 1;
-            bits[6 * i + 2] = (abs(I) > t4) ? 1 : 0;
-            bits[6 * i + 4] = (abs(I) < t2 || abs(I) > t6) ? 1 : 0;
+            bits[6 * i + 0] = (I > 0.0f) ? 0 : 1;
+            bits[6 * i + 1] = (Q > 0.0f) ? 0 : 1;
 
-            bits[6 * i + 1] = (Q > 0) ? 0 : 1;
-            bits[6 * i + 3] = (abs(Q) > t4) ? 1 : 0;
-            bits[6 * i + 5] = (abs(Q) < t2 || abs(Q) > t6) ? 1 : 0;
+            float absI = fabsf(I);
+            float absQ = fabsf(Q);
+
+            bits[6 * i + 2] = (absI > 4.0f) ? 1 : 0;
+            bits[6 * i + 3] = (absQ > 4.0f) ? 1 : 0;
+
+            float sign_b2_I = (bits[6 * i + 2] == 0) ? 1.0f : -1.0f;
+            float sign_b2_Q = (bits[6 * i + 3] == 0) ? 1.0f : -1.0f;
+
+            float inner_I = (4.0f - absI) / sign_b2_I;
+            float inner_Q = (4.0f - absQ) / sign_b2_Q;
+
+            bits[6 * i + 4] = (inner_I < 2.0f) ? 0 : 1;
+            bits[6 * i + 5] = (inner_Q < 2.0f) ? 0 : 1;
         }
     } else {
         return {};

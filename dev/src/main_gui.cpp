@@ -322,8 +322,7 @@ int main() {
             ImGui::Checkbox("Time Sync", &sd.flags.ofdm_time_est);
             ImGui::SameLine();
             ImGui::Text("Signal Begin: %d", sd.ofdm.sig_begin);
-            ImGui::SameLine();
-            ImGui::SliderInt("Manual Sync", &sd.ofdm.sig_begin, 0, 1920);
+            ImGui::SliderInt("Offset", &sd.ofdm_sync.timing_offset, -20, 20);
             ImGui::Checkbox("Cut Begin", &sd.flags.cut_begin);
             ImGui::Checkbox("Decode Header", &sd.flags.header_dec);
             ImGui::SameLine();
@@ -501,11 +500,36 @@ int main() {
         ImGui::End();
 
         ImGui::Begin("Other", nullptr, ImGuiWindowFlags_NoTitleBar);
+        {
+            static std::vector<float> snr_render_buffer(sd.snr_vec_size);
+            static std::vector<float> evm_render_buffer(sd.snr_vec_size);
+            
+            int render_start = (sd.snr_vec_offset + 1) % sd.snr_vec_size;
+            int samples_count = sd.frames_processed;
+            if (samples_count > sd.snr_vec_size) samples_count = sd.snr_vec_size;
 
-        if (ImPlot::BeginPlot("Timing Offsets", ImVec2(-1, 300))) {
-            ImPlot::PlotLine("Offset", sd.timing_offsets.data(), sd.timing_offsets.size());
-            ImPlot::EndPlot();
+            for (int i = 0; i < samples_count; i++) {
+                snr_render_buffer[i] = sd.SNR_vec[(render_start + i) % sd.snr_vec_size];
+                evm_render_buffer[i] = sd.EVM_vec[(render_start + i) % sd.snr_vec_size];
+            }
+
+            if (ImPlot::BeginPlot("Timing Offsets", ImVec2(-1, 300))) {
+                ImPlot::PlotLine("Offset", sd.timing_offsets.data(), sd.timing_offsets.size());
+                ImPlot::EndPlot();
+            }
+    
+            if (ImPlot::BeginPlot("SNR", ImVec2(-1, 300))) {
+                ImPlot::PlotLine("SNR", snr_render_buffer.data(), samples_count);
+                ImPlot::EndPlot();
+            }
+    
+            if (ImPlot::BeginPlot("EVM", ImVec2(-1, 300))) {
+                ImPlot::PlotLine("EVM", evm_render_buffer.data(), samples_count);
+                ImPlot::EndPlot();
+            }
         }
+
+        
         ImGui::End();
 
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);

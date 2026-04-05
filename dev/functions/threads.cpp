@@ -19,6 +19,10 @@ void rx_back(SharedData &sd) {
     long long total_duration_us = 0;
     int frame_count = 0;
 
+    sd.SNR_vec.resize(sd.snr_vec_size, 0);
+    sd.EVM_vec.resize(sd.snr_vec_size, 0);
+    sd.snr_vec_offset = sd.snr_vec_size - 1;
+
     std::vector<int16_t> bits_bpsk = {0, 1};
     std::vector<std::complex<float>> constellation_bpsk = modulator(bits_bpsk, 2, "QAM::2");
 
@@ -64,18 +68,22 @@ void rx_back(SharedData &sd) {
         sd.buffer_without_dsp = rx_buffer;
 
         if (sd.flags.ofdm_time_est) {
-            sd.ofdm.sig_begin = zadoff_sync(rx_buffer, sd);
+            sd.ofdm.sig_begin = zadoff_sync(rx_buffer, sd) + sd.ofdm_sync.timing_offset;
         }
 
         if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin &&
             sd.ofdm.sig_begin < (int) rx_buffer.size() - (sd.ofdm.n_subcarriers + sd.ofdm.cp_len)) {
-            local_raw_buffer.clear();
-            local_raw_buffer.insert(local_raw_buffer.end(), rx_buffer.begin() + sd.ofdm.sig_begin, rx_buffer.end());
-            local_raw_buffer.insert(local_raw_buffer.end(), rx_buffer.begin(), rx_buffer.begin() + sd.ofdm.sig_begin);
-            local_raw_buffer.erase(local_raw_buffer.begin(),
-                                   local_raw_buffer.begin() + sd.ofdm.n_subcarriers + sd.ofdm.cp_len);
+            local_raw_buffer = remove_pss(std::ref(sd), rx_buffer);
         } else {
             local_raw_buffer = std::move(rx_buffer);
+        }
+
+        if (sd.flags.cfo_est_enabled) {
+            local_raw_buffer = cfo_est(local_raw_buffer, sd);
+        }
+
+        if (local_raw_buffer.empty() || local_raw_buffer.size() < 128) {
+            continue;
         }
 
         sd.ofdm_sync.packet_len = 0;
@@ -85,9 +93,6 @@ void rx_back(SharedData &sd) {
                 local_raw_buffer.erase(local_raw_buffer.begin(),
                                        local_raw_buffer.begin() + sd.ofdm.n_subcarriers + sd.ofdm.cp_len);
         }
-
-        if (sd.flags.cfo_est_enabled)
-            local_raw_buffer = cfo_est(local_raw_buffer, sd);
 
         if (sd.flags.ofdm_fft_enabled)
             local_raw_buffer = discard_cp(local_raw_buffer, sd);
@@ -111,10 +116,16 @@ void rx_back(SharedData &sd) {
 
         sd.SNR_DB = SNR_calculation(sd.buffer_without_dsp, std::ref(sd));
 
-        size_t n = std::min(rx_buffer.size(), sd.fft.FFT_SIZE);
+        sd.SNR_vec[sd.snr_vec_offset] = sd.SNR_DB;
+        sd.EVM_vec[sd.snr_vec_offset] = sd.EVM;
+
+        sd.snr_vec_offset = (sd.snr_vec_offset - 1 + sd.snr_vec_size) % sd.snr_vec_size;
+        sd.frames_processed++;
+
+        size_t n = std::min(sd.buffer_without_dsp.size(), sd.fft.FFT_SIZE);
         for (size_t i = 0; i < n; i++) {
-            sd.fft.fft_in[i][0] = rx_buffer[rx_buffer.size() - n + i].real();
-            sd.fft.fft_in[i][1] = rx_buffer[rx_buffer.size() - n + i].imag();
+            sd.fft.fft_in[i][0] = sd.buffer_without_dsp[sd.buffer_without_dsp.size() - n + i].real();
+            sd.fft.fft_in[i][1] = sd.buffer_without_dsp[sd.buffer_without_dsp.size() - n + i].imag();
         }
         for (size_t i = n; i < sd.fft.FFT_SIZE; i++) {
             sd.fft.fft_in[i][0] = 0.0;
@@ -132,6 +143,8 @@ void rx_back(SharedData &sd) {
         {
             std::lock_guard<std::mutex> lock(sd.mtx);
             sd.buffer = std::move(local_raw_buffer);
+            logs::dsp.info("mod={} symbols={} packet_len={}", mod_type, sd.buffer.size(), sd.ofdm_sync.packet_len);
+            
             sd.interleaved_rx_bits = demodulator(sd.buffer, mod_type);
 
             if (!sd.interleaved_rx_bits.empty() && sd.flags.ofdm_eq_enabled) {
@@ -217,6 +230,11 @@ void SDRStream(SharedData &sd, SDRConfig &config) {
         int16_t *data_ptr = static_cast<int16_t *>(config.rx_buffer);
         if (!data_ptr)
             continue;
+
+        if (sr < 0) {
+            logs::sdr.error("Failed to read stream!");
+            continue;
+        }
 
         std::vector<std::complex<float>> tmp;
         tmp.reserve(sr);
