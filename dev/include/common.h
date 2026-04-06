@@ -107,8 +107,8 @@ struct ofdm_conf {
     int n_subcarriers = 128;
     int cp_len = 32;
     int sig_begin = 0;
-    int num_pilots = 24;
-    int guard_dc = 2;
+    int num_pilots = 10;
+    int guard_dc = 1;
     int guard_edge = 26;
     std::vector<int8_t> pilot_idx = {8, 16, 24, 40, 48, 56};
 

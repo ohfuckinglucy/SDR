@@ -116,23 +116,26 @@ std::vector<int16_t> hamming_encoder(const std::vector<int16_t> &bits) {
     int rows = (encoded.size() + COLS - 1) / COLS;
     encoded.resize(rows * COLS, 0);
 
-    std::vector<int16_t> interleaved(rows * COLS, 0);
-    for (int col = 0; col < COLS; ++col)
-        for (int row = 0; row < rows; ++row)
+    std::vector<int16_t> interleaved(rows * COLS);
+    for (int row = 0; row < rows; ++row) {
+        for (int col = 0; col < COLS; ++col) {
             interleaved[col * rows + row] = encoded[row * COLS + col];
+        }
+    }
 
     return interleaved;
 }
 
 std::vector<int16_t> hamming_decoder(std::vector<int16_t> &bits, SharedData &sd) {
     const int COLS = 32;
-    int rows = (bits.size() + COLS - 1) / COLS;
-    bits.resize(rows * COLS, 0);
+    int rows = bits.size() / COLS;
 
-    std::vector<int16_t> deinterleaved(rows * COLS, 0);
-    for (int col = 0; col < COLS; ++col)
-        for (int row = 0; row < rows; ++row)
+    std::vector<int16_t> deinterleaved(bits.size());
+    for (int col = 0; col < COLS; ++col) {
+        for (int row = 0; row < rows; ++row) {
             deinterleaved[row * COLS + col] = bits[col * rows + row];
+        }
+    }
 
     int N = deinterleaved.size() / 30;
     std::vector<uint8_t> decoded_bytes;

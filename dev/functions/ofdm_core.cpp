@@ -135,49 +135,40 @@ std::vector<std::complex<float>> discard_cp(std::vector<std::complex<float>> sig
 
 void update_pilots(SharedData &sd) {
     sd.ofdm.pilot_idx.clear();
-
     int N = sd.ofdm.n_subcarriers;
     int num = sd.ofdm.num_pilots;
 
-    if (num < 4 || N <= 0)
+    if (num < 2 || N <= 0)
         return;
 
     int nyq = N / 2;
 
     int left_start = sd.ofdm.guard_dc;
-    int left_end   = nyq - sd.ofdm.guard_edge - 1;
-
+    int left_end = nyq - sd.ofdm.guard_edge - 1;
     int right_start = nyq + sd.ofdm.guard_edge + 1;
-    int right_end   = N - sd.ofdm.guard_dc - 1;
+    int right_end = N - sd.ofdm.guard_dc - 1;
 
-    sd.ofdm.pilot_idx.push_back(left_start);
-    sd.ofdm.pilot_idx.push_back(left_end);
-    sd.ofdm.pilot_idx.push_back(right_start);
-    sd.ofdm.pilot_idx.push_back(right_end);
+    int num_left = num / 2;
+    int num_right = num - num_left;
 
-    int remaining = num - 4;
-    if (remaining <= 0)
-        return;
+    auto distribute = [&](int start, int end, int count) {
+        if (count <= 0)
+            return;
+        if (count == 1) {
+            sd.ofdm.pilot_idx.push_back((start + end) / 2);
+            return;
+        }
+        float step = static_cast<float>(end - start) / (count - 1);
+        for (int i = 0; i < count; ++i) {
+            sd.ofdm.pilot_idx.push_back(static_cast<int>(start + i * step + 0.5f));
+        }
+    };
 
-    std::vector<int> inner;
-
-    for (int k = left_start + 1; k < left_end; ++k)
-        inner.push_back(k);
-
-    for (int k = right_start + 1; k < right_end; ++k)
-        inner.push_back(k);
-
-    if (inner.size() <= (size_t)remaining)
-        return;
-
-    int step = inner.size() / (remaining + 1);
-
-    for (int i = 0; i < remaining; ++i) {
-        int idx = inner[(i + 1) * step];
-        sd.ofdm.pilot_idx.push_back(idx);
-    }
+    distribute(left_start, left_end, num_left);
+    distribute(right_start, right_end, num_right);
 
     std::sort(sd.ofdm.pilot_idx.begin(), sd.ofdm.pilot_idx.end());
+    sd.ofdm.pilot_idx.erase(std::unique(sd.ofdm.pilot_idx.begin(), sd.ofdm.pilot_idx.end()), sd.ofdm.pilot_idx.end());
 }
 
 std::vector<std::complex<float>> ofdm_equalize(const std::vector<std::complex<float>> &signal, SharedData &sd) {
@@ -221,7 +212,7 @@ std::vector<std::complex<float>> ofdm_equalize(const std::vector<std::complex<fl
         }
 
         for (int k = 0; k < pilots.front(); ++k)
-                H[k] = H[pilots.front()];
+            H[k] = H[pilots.front()];
 
         for (int k = pilots.back() + 1; k < N; ++k)
             if (!is_guard(k, sd))
@@ -246,7 +237,7 @@ std::vector<std::complex<float>> ofdm_equalize(const std::vector<std::complex<fl
             phase /= pilot_count;
 
         for (int k = 0; k < N; ++k) {
-                equalized[k] *= exp(std::complex<float>(0, -phase));
+            equalized[k] *= exp(std::complex<float>(0, -phase));
         }
 
         for (int k = 0; k < N; ++k) {

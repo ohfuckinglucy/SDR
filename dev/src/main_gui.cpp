@@ -503,10 +503,11 @@ int main() {
         {
             static std::vector<float> snr_render_buffer(sd.snr_vec_size);
             static std::vector<float> evm_render_buffer(sd.snr_vec_size);
-            
+
             int render_start = (sd.snr_vec_offset + 1) % sd.snr_vec_size;
             int samples_count = sd.frames_processed;
-            if (samples_count > sd.snr_vec_size) samples_count = sd.snr_vec_size;
+            if (samples_count > sd.snr_vec_size)
+                samples_count = sd.snr_vec_size;
 
             for (int i = 0; i < samples_count; i++) {
                 snr_render_buffer[i] = sd.SNR_vec[(render_start + i) % sd.snr_vec_size];
@@ -517,19 +518,78 @@ int main() {
                 ImPlot::PlotLine("Offset", sd.timing_offsets.data(), sd.timing_offsets.size());
                 ImPlot::EndPlot();
             }
-    
+
             if (ImPlot::BeginPlot("SNR", ImVec2(-1, 300))) {
                 ImPlot::PlotLine("SNR", snr_render_buffer.data(), samples_count);
                 ImPlot::EndPlot();
             }
-    
+
             if (ImPlot::BeginPlot("EVM", ImVec2(-1, 300))) {
                 ImPlot::PlotLine("EVM", evm_render_buffer.data(), samples_count);
                 ImPlot::EndPlot();
             }
         }
 
-        
+        ImGui::End();
+
+        ImGui::Begin("Grid", nullptr, ImGuiWindowFlags_NoTitleBar);
+        {
+            const int N = sd.ofdm.n_subcarriers;
+            if (N > 0) {
+                static float zoomX = 16.0f;
+                static float zoomY = 550.0f;
+
+                ImGui::BeginChild("GridScroll", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar);
+                {
+                    float cellSize = zoomX;
+                    float rowHeight = zoomY;
+
+                    ImVec2 startPos = ImGui::GetCursorScreenPos();
+                    ImDrawList *drawList = ImGui::GetWindowDrawList();
+
+                    ImU32 colorGuard = ImColor(70, 70, 70);
+                    ImU32 colorData = ImColor(0, 114, 189);
+                    ImU32 colorPilot = ImColor(255, 120, 0);
+
+                    const auto &pilots = sd.ofdm.pilot_idx;
+
+                    for (int i = 0; i < N; ++i) {
+                        int k = (i + N / 2) % N;
+
+                        ImU32 cellColor = colorData;
+                        if (is_guard(k, sd)) {
+                            cellColor = colorGuard;
+                        } else if (std::find(pilots.begin(), pilots.end(), k) != pilots.end()) {
+                            cellColor = colorPilot;
+                        }
+
+                        ImVec2 p_min = ImVec2(startPos.x + i * cellSize, startPos.y);
+                        ImVec2 p_max = ImVec2(p_min.x + cellSize - 1.0f, p_min.y + rowHeight);
+
+                        drawList->AddRectFilled(p_min, p_max, cellColor);
+
+                        if (cellSize > 2.0f) {
+                            drawList->AddRect(p_min, p_max, ImColor(0, 0, 0, 150));
+                        }
+
+                        if (ImGui::IsMouseHoveringRect(p_min, p_max)) {
+                            ImGui::BeginTooltip();
+                            ImGui::Text("Array Index [k]: %d", k);
+                            ImGui::Text("Screen Pos [i]: %d", i);
+                            if (k == 0)
+                                ImGui::Text("Type: DC (Center of Spectrum)");
+                            ImGui::EndTooltip();
+                        }
+                    }
+
+                    ImGui::Dummy(ImVec2(N * cellSize, rowHeight));
+
+                }
+                ImGui::SliderFloat("Cell Width", &zoomX, 1.0f, 50.0f);
+                ImGui::SliderFloat("Cell Height", &zoomY, 5.0f, 200.0f);
+                ImGui::EndChild();
+            }
+        }
         ImGui::End();
 
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
