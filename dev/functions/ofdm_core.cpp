@@ -10,11 +10,14 @@ bool is_guard(int k, SharedData &sd) {
     int N = sd.ofdm.n_subcarriers;
 
     int nyq = N / 2;
-
-    if (k < sd.ofdm.guard_dc || k >= N - sd.ofdm.guard_dc)
-        return true;
-
-    if (abs(k - nyq) <= sd.ofdm.guard_edge)
+    
+    if (k >= nyq && k <= nyq + 27)
+    return true;
+    
+    if (k >= nyq - 27 && k <= nyq-1)
+    return true;
+    
+    if (k == 0)
         return true;
 
     return false;
@@ -143,10 +146,10 @@ void update_pilots(SharedData &sd) {
 
     int nyq = N / 2;
 
-    int left_start = sd.ofdm.guard_dc;
-    int left_end = nyq - sd.ofdm.guard_edge - 1;
-    int right_start = nyq + sd.ofdm.guard_edge + 1;
-    int right_end = N - sd.ofdm.guard_dc - 1;
+    int left_start = 1;
+    int left_end = nyq - 28;
+    int right_start = nyq + 28;
+    int right_end = N - 1;
 
     int num_left = num / 2;
     int num_right = num - num_left;

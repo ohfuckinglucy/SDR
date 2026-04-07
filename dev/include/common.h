@@ -109,7 +109,7 @@ struct ofdm_conf {
     int sig_begin = 0;
     int num_pilots = 10;
     int guard_dc = 1;
-    int guard_edge = 26;
+    int guard_edge = 28;
     std::vector<int8_t> pilot_idx = {8, 16, 24, 40, 48, 56};
 
     int padding = 0;
@@ -171,7 +171,7 @@ struct SharedData {
     float tx_gain = 30;
     float rx_gain = 20;
     int Threshold = 0;
-    int freq = 767000000;
+    float freq = 734e6;
     float rx_bandwidth = 1.92e6;
     float tx_bandwidth = 1.92e6;
 
