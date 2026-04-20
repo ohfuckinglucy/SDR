@@ -1,12 +1,11 @@
 #pragma once
 
 #include <SoapySDR/Device.h>
-#include <cstddef>
-#include <fftw3.h>
-
 #include <array>
 #include <atomic>
 #include <complex>
+#include <cstddef>
+#include <fftw3.h>
 #include <mutex>
 #include <vector>
 
@@ -19,27 +18,29 @@ struct SharedData;
 template <typename T>
 class DoubleBuffer {
   public:
-    void write(const T &data) {
+    void write(const T &data)
+    {
         bufs_[write_idx_] = data;
         published_.store(write_idx_, std::memory_order_release);
         write_idx_ ^= 1;
     }
 
-    bool read(T &out) {
+    bool read(T &out)
+    {
         int idx = published_.load(std::memory_order_acquire);
         if (idx < 0)
             return false;
         out = bufs_[idx];
         return true;
     }
-
   private:
     std::array<T, 2> bufs_;
-    std::atomic<int> published_{-1};
+    std::atomic<int> published_{ -1 };
     int write_idx_ = 0;
 };
 
-struct SDRConfig {
+struct SDRConfig
+{
     SoapySDRDevice *sdr;
     SoapySDRStream *rxStream;
     SoapySDRStream *txStream;
@@ -51,8 +52,9 @@ struct SDRConfig {
     int16_t *rx_buffer;
 };
 
-struct Flags {
-    std::atomic<bool> g_running{false};
+struct Flags
+{
+    std::atomic<bool> g_running{ false };
     bool loopback_flag = false;
     bool fft_flag = false;
     bool fft_ready = false;
@@ -78,7 +80,8 @@ struct Flags {
     int modulation_index = 0;
 };
 
-struct Fft_conf {
+struct Fft_conf
+{
     std::vector<std::complex<float>> fft_buffer;
     std::vector<float> fft_magnitude;
     static constexpr size_t FFT_SIZE = 1920;
@@ -97,25 +100,28 @@ struct Fft_conf {
     fftw_complex *ofdm_rx_out = nullptr;
 };
 
-struct device_finder {
+struct device_finder
+{
     std::string selected_uri;
     std::vector<SoapySDRKwargs> pluto_devices;
     int selected_device_index = 0;
 };
 
-struct ofdm_conf {
+struct ofdm_conf
+{
     int n_subcarriers = 128;
     int cp_len = 32;
     int sig_begin = 0;
     int num_pilots = 10;
     int guard_dc = 1;
     int guard_edge = 28;
-    std::vector<int8_t> pilot_idx = {8, 16, 24, 40, 48, 56};
+    std::vector<int8_t> pilot_idx = { 8, 16, 24, 40, 48, 56 };
 
     int padding = 0;
 };
 
-struct SyncResult {
+struct SyncResult
+{
     int timing_offset = -1;
     float cfo_estimate = 0;
     uint16_t packet_len = 0;
@@ -124,7 +130,8 @@ struct SyncResult {
     std::vector<std::complex<float>> preamble_freq;
 };
 
-struct HammingStats {
+struct HammingStats
+{
     uint64_t blocks_processed = 0;
     uint64_t blocks_with_errors = 0;
     uint64_t bits_corrected = 0;
@@ -132,10 +139,11 @@ struct HammingStats {
 
     uint64_t last_reset_time = 0;
 
-    std::array<uint32_t, 32> syndrome_hist = {0};
+    std::array<uint32_t, 32> syndrome_hist = { 0 };
 };
 
-struct SharedData {
+struct SharedData
+{
     std::mutex mtx;
     Flags flags;
     Fft_conf fft;
@@ -171,7 +179,7 @@ struct SharedData {
     float tx_gain = 30;
     float rx_gain = 20;
     int Threshold = 0;
-    float freq = 734e6;
+    float freq = 2.2e9;
     float rx_bandwidth = 1.92e6;
     float tx_bandwidth = 1.92e6;
 
@@ -185,8 +193,7 @@ struct SharedData {
     float bler_value = 0.0;
 };
 
-void update_scope_buffer(std::vector<std::complex<float>> &scope_buffer,
-                         const std::vector<std::complex<float>> &new_samples, size_t SCOPE_DISPLAY_SIZE);
+void update_scope_buffer(std::vector<std::complex<float>> &scope_buffer, const std::vector<std::complex<float>> &new_samples, size_t SCOPE_DISPLAY_SIZE);
 bool is_guard(int k, SharedData &sd);
 void signal_generate(SharedData &sd, SDRConfig &config);
 void rebuild_ofdm_plans(SharedData &sd);
@@ -196,6 +203,5 @@ void tx_back(SharedData &sd, SDRConfig &config);
 
 void SDRStream(SharedData &sd, SDRConfig &config);
 
-float SNR_calculation(const std::vector<std::complex<float>> &signal, SharedData &sd);
-float calculate_EVM(const std::vector<std::complex<float>> &received,
-                    const std::vector<std::complex<float>> &constellation);
+float SNR_calculation(const std::vector<std::complex<float>> &signal);
+float calculate_EVM(const std::vector<std::complex<float>> &received, const std::vector<std::complex<float>> &constellation);
