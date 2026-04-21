@@ -7,9 +7,11 @@
 #include "sync_freq.h"
 #include "sync_time.h"
 
-void rx_back(SharedData &sd) {
+void rx_back(SharedData &sd)
+{
     std::vector<std::complex<float>> local_raw_buffer;
     std::vector<std::complex<float>> rx_buffer;
+    std::vector<std::complex<float>> prev_buf;
 
     std::vector<float> local_fft_mag(sd.fft.FFT_SIZE);
     sd.ofdm_sync.reference = generate_zc_preamble(sd);
@@ -70,16 +72,32 @@ void rx_back(SharedData &sd) {
             continue;
         }
 
-        sd.buffer_without_dsp = rx_buffer;
-
-        if (sd.flags.ofdm_time_est) {
+        if (sd.flags.ofdm_time_est)
+        {
             sd.ofdm.sig_begin = zadoff_sync(rx_buffer, sd) + sd.ofdm_sync.timing_offset;
+            if (sd.ofdm.sig_begin > (rx_buffer.size() / 3) - (sd.ofdm.n_subcarriers + sd.ofdm.cp_len))
+            {
+                if (prev_buf.empty())
+                {
+                    prev_buf = std::move(rx_buffer);
+                    continue;
+                }
+                else
+                {
+                    rx_buffer.insert(rx_buffer.begin(), prev_buf.begin(), prev_buf.end());
+                    prev_buf.clear();
+                }
+            }
         }
 
-        if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin &&
-            sd.ofdm.sig_begin < (int) rx_buffer.size() - (sd.ofdm.n_subcarriers + sd.ofdm.cp_len)) {
+        sd.buffer_without_dsp = rx_buffer;
+
+        if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin && sd.ofdm.sig_begin < 1920 - (sd.ofdm.n_subcarriers + sd.ofdm.cp_len))
+        {
             local_raw_buffer = remove_pss(std::ref(sd), rx_buffer);
-        } else {
+        }
+        else
+        {
             local_raw_buffer = std::move(rx_buffer);
         }
 

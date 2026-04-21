@@ -181,7 +181,7 @@ struct SharedData
     int Threshold = 0;
     float freq = 2.2e9;
     float rx_bandwidth = 1.92e6;
-    float tx_bandwidth = 1.92e6;
+    float trx_bandwidth = 10.0e6;
 
     float EVM = 0;
     float SNR_DB = 0;

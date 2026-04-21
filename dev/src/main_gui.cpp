@@ -302,15 +302,15 @@ int main() {
             sd.flags.tx_freq_changed = true;
         }
 
-        float rx_bandwidth = sd.rx_bandwidth;
-        if (ImGui::SliderFloat("Rx Sample Rate", &rx_bandwidth, 0.2e6, 10e6, "%e")) {
-            sd.rx_bandwidth = rx_bandwidth;
+        float sample_rate = sd.rx_bandwidth;
+        if (ImGui::SliderFloat("Rx Sample Rate", &sample_rate, 0.2e6, 10e6, "%e")) {
+            sd.rx_bandwidth = sample_rate;
             sd.flags.rx_bw_changed = true;
         }
 
-        float tx_bandwidth = sd.tx_bandwidth;
-        if (ImGui::SliderFloat("TX BandWidth", &tx_bandwidth, 0.2e6, 10e6, "%e")) {
-            sd.tx_bandwidth = tx_bandwidth;
+        float rx_bandwidth = sd.trx_bandwidth;
+        if (ImGui::SliderFloat("TX BandWidth", &rx_bandwidth, 0.2e6, 10e6, "%e")) {
+            sd.trx_bandwidth = rx_bandwidth;
             sd.flags.tx_bw_changed = true;
         }
 

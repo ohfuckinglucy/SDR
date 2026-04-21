@@ -89,14 +89,9 @@ int zadoff_sync(const std::vector<std::complex<float>> &signal, SharedData &sd)
 std::vector<std::complex<float>> remove_pss(const SharedData &sd, const std::vector<std::complex<float>> &signal)
 {
     const size_t ofdm_symbol = static_cast<size_t>(sd.ofdm.n_subcarriers) + static_cast<size_t>(sd.ofdm.cp_len);
-    if (ofdm_symbol == 0)
-        return {};
 
     const size_t sig_begin = static_cast<size_t>(sd.ofdm.sig_begin);
     std::vector<std::complex<float>> out_signal;
-
-    if (sig_begin >= signal.size())
-        return out_signal;
 
     const size_t start_idx = sig_begin + ofdm_symbol;
     if (start_idx >= signal.size())

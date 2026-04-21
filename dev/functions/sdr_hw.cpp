@@ -101,7 +101,7 @@ void reconfig_sdr(SharedData &sd, SDRConfig &config)
     if (sd.flags.tx_bw_changed)
     {
         SoapySDRDevice_deactivateStream(config.sdr, config.txStream, 0, 0);
-        SoapySDRDevice_setSampleRate(config.sdr, SOAPY_SDR_TX, 0, sd.tx_bandwidth);
+        SoapySDRDevice_setBandwidth(config.sdr, SOAPY_SDR_RX, 0, sd.trx_bandwidth);
         sd.flags.tx_bw_changed = false;
         SoapySDRDevice_activateStream(config.sdr, config.txStream, 0, 0, 0);
     }

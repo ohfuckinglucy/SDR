@@ -222,10 +222,10 @@ int main() {
             }
         }
 
-        float tx_bandwidth = sd.tx_bandwidth;
+        float tx_bandwidth = sd.rx_bandwidth;
         if (ImGui::SliderFloat("TX BandWidth", &tx_bandwidth, 0.2e6, 10e6, "%e")) {
             if (sd.flags.g_running) {
-                sd.tx_bandwidth = tx_bandwidth;
+                sd.rx_bandwidth = tx_bandwidth;
                 sd.flags.tx_bw_changed = true;
             }
         }
