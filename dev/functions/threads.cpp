@@ -172,9 +172,15 @@ void rx_back(SharedData &sd)
             {
                 sd.rx_bits = hamming_decoder(sd.interleaved_rx_bits, std::ref(sd));
 
+                if (!sd.rx_bits.empty())
+                {
+                    
+                }
+
                 bool crc_ok = verifyCRC16(sd.rx_bits);
 
-                if (crc_ok){
+                if (crc_ok)
+                {
                     pic_write(sd.rx_bits);
                 }
 

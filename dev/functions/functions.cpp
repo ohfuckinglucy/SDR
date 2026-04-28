@@ -49,12 +49,12 @@ void signal_generate(SharedData &sd, SDRConfig &config)
             total_symbols = ofdm_blocks * data_per_symbol;
         }
 
-        sd.bits = pic_read();
+        // sd.bits = pic_read();
 
-        // sd.bits.resize(total_symbols * bits_ps);
+        sd.bits.resize(total_symbols * bits_ps);
 
-        // for (size_t i = 0; i < sd.bits.size(); ++i)
-            // sd.bits[i] = rand() % 2;
+        for (size_t i = 0; i < sd.bits.size(); ++i)
+            sd.bits[i] = rand() % 2;
 
         CRC = calculateCRC16_fromBits(sd.bits);
 

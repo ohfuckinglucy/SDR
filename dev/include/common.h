@@ -142,6 +142,15 @@ struct HammingStats
     std::array<uint32_t, 32> syndrome_hist = { 0 };
 };
 
+struct FragmentReassembly
+{
+    std::vector<uint8_t> payload_buffer;
+    uint32_t exprected_total_bytes = 0;
+    uint16_t received_chunks = 0;
+    uint16_t total_chunks = 0;
+    bool in_progress = true;
+};
+
 struct SharedData
 {
     std::mutex mtx;
@@ -151,6 +160,7 @@ struct SharedData
     ofdm_conf ofdm;
     SyncResult ofdm_sync;
     HammingStats Ham_stats;
+    FragmentReassembly reassembly;
 
     DoubleBuffer<std::vector<std::complex<float>>> pipe;
 
