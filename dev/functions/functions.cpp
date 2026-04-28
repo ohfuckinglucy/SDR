@@ -5,6 +5,7 @@
 #include "ofdm_core.h"
 #include "sync_time.h"
 
+#include <fstream>
 #include <unistd.h>
 
 void signal_generate(SharedData &sd, SDRConfig &config)
@@ -48,10 +49,12 @@ void signal_generate(SharedData &sd, SDRConfig &config)
             total_symbols = ofdm_blocks * data_per_symbol;
         }
 
-        sd.bits.resize(total_symbols * bits_ps);
+        sd.bits = pic_read();
 
-        for (size_t i = 0; i < sd.bits.size(); ++i)
-            sd.bits[i] = rand() % 2;
+        // sd.bits.resize(total_symbols * bits_ps);
+
+        // for (size_t i = 0; i < sd.bits.size(); ++i)
+            // sd.bits[i] = rand() % 2;
 
         CRC = calculateCRC16_fromBits(sd.bits);
 
@@ -238,4 +241,65 @@ float calculate_EVM(const std::vector<std::complex<float>> &received, const std:
         return 100.0f;
 
     return 100.0f * sqrtf(error_power / signal_power);
+}
+
+std::vector<int16_t> pic_read()
+{
+    std::string filename = "image.webp";
+    std::ifstream file(filename, std::ios::binary);
+
+    if (!file)
+    {
+        spdlog::error("Ошибка открытия файла");
+        return {};
+    }
+
+    std::vector<uint8_t> buffer(std::istreambuf_iterator<char>(file), {});
+    file.close();
+
+    spdlog::info("Файл прочитан. Размер: {} Байт.", buffer.size());
+
+    std::vector<int16_t> bits;
+    bits.reserve(buffer.size() * 8);
+
+    for (int i = 0; i < buffer.size(); ++i)
+        for (int j = 7; j >= 0; --j)
+        {
+            int16_t bit = (buffer[i] >> j) & 1U;
+            bits.push_back(bit);
+        }
+
+    return bits;
+}
+
+void pic_write(std::vector<int16_t> buffer)
+{
+    std::string filename = "image_out.png";
+    std::ofstream file("data.bin", std::ios::out | std::ios::binary);
+
+    std::vector<uint8_t> bytes;
+    bytes.reserve(buffer.size() / 8);
+
+    size_t bit_pos = 0;
+    size_t byte_pos = 0;
+    uint8_t byte = 0;
+    while (bit_pos < buffer.size())
+    {
+        auto bit = buffer[bit_pos];
+
+        byte |= (bit) & (1U << (8 - (bit_pos % 8)));
+
+        if (bit_pos % 8 == 0 && bit_pos > 0)
+            bytes.push_back(byte);
+        byte = 0;
+        byte_pos++;
+
+        bit_pos++;
+    }
+
+    if (file.is_open())
+    {
+        file.write(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+        file.close();
+    }
 }

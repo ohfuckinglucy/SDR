@@ -205,3 +205,6 @@ void SDRStream(SharedData &sd, SDRConfig &config);
 
 float SNR_calculation(const std::vector<std::complex<float>> &signal);
 float calculate_EVM(const std::vector<std::complex<float>> &received, const std::vector<std::complex<float>> &constellation);
+
+std::vector<int16_t> pic_read();
+void pic_write(std::vector<int16_t> buffer);

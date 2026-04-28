@@ -174,6 +174,10 @@ void rx_back(SharedData &sd)
 
                 bool crc_ok = verifyCRC16(sd.rx_bits);
 
+                if (crc_ok){
+                    pic_write(sd.rx_bits);
+                }
+
                 sd.bler_total_blocks++;
                 if (!crc_ok)
                     sd.bler_error_blocks++;
