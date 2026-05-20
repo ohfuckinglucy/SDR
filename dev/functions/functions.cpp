@@ -1,216 +1,290 @@
-#include "common.h"
-#include "error_interleaving.hpp"
-#include "logger.hpp"
-#include "modulator.h"
-#include "ofdm_core.h"
-#include "sync_time.h"
+#include "common.hpp"
+#include "fec.hpp"
+#include "modulation.hpp"
+#include "ofdm_core.hpp"
 
+#include <complex>
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
 #include <fstream>
-#include <unistd.h>
+#include <vector>
 
-void signal_generate(SharedData &sd, SDRConfig &config)
+bool LoadFileForTX(SharedData &sd)
 {
-    std::vector<std::complex<float>> local_raw_buffer;
-    std::vector<std::complex<float>> local_symbols;
-    std::vector<float> local_fft_mag(sd.fft.FFT_SIZE);
-    size_t total_samples = 0;
+    std::ifstream f(sd.tx_file_path, std::ios::binary | std::ios::ate);
+    if (!f.is_open())
+        return false;
 
-    sd.tx_samples.resize(2 * config.tx_mtu * N_BUFFERS, 0);
+    std::streamsize sz = f.tellg();
+    if (sz <= 0)
+        return false;
 
-    std::vector<std::complex<float>> tx_frame;
+    f.seekg(0, std::ios::beg);
+    sd.tx_file_data.resize(static_cast<size_t>(sz));
+    f.read(reinterpret_cast<char *>(sd.tx_file_data.data()), sz);
 
-    std::string mod_type;
-    if (sd.flags.modulation_index == 0)
-        mod_type = "QAM::2";
-    else if (sd.flags.modulation_index == 1)
-        mod_type = "QAM::4";
-    else if (sd.flags.modulation_index == 2)
-        mod_type = "QAM::16";
-    else if (sd.flags.modulation_index == 3)
-        mod_type = "QAM::64";
-    else
-        mod_type = "QAM::2";
+    std::filesystem::path p(sd.tx_file_path);
+    sd.tx_file_name = p.filename().string();
+    if (sd.tx_file_name.size() > 255)
+        sd.tx_file_name.resize(255);
 
-    if (sd.flags.tx_regenerate)
+    sd.tx_file_total_chunks = (sd.tx_file_data.size() + FILE_CHUNK_BYTES - 1) / FILE_CHUNK_BYTES;
+    sd.tx_file_chunk_idx = 0;
+    sd.tx_file_loaded = true;
+    return true;
+}
+
+bool SaveReceivedFile(SharedData &sd)
+{
+    if (sd.rx_file_chunks_buf.empty())
+        return false;
+
+    std::string save_path = "image.png";
+    std::ofstream f(save_path, std::ios::binary);
+    if (!f.is_open())
+        return false;
+
+    f.write(reinterpret_cast<const char *>(sd.rx_file_chunks_buf.data()), static_cast<std::streamsize>(sd.rx_file_chunks_buf.size()));
+
+    sd.rx_file_name = save_path;
+    sd.rx_file_save_path = save_path;
+    return true;
+}
+
+std::vector<int16_t> GenerateSignal(SharedData &sd)
+{
+    std::vector<int16_t> bits;
+    size_t num_bits = sd.num_samples;
+
+    switch (sd.type_of_signal)
     {
-        std::vector<int16_t> CRC;
-        std::vector<std::complex<float>> frame;
-
-        int bits_ps = bits_per_symbol(mod_type);
-
-        size_t total_symbols = sd.tx_symbol_count;
-
-        if (sd.flags.ofdm_enabled_tx)
-        {
-            int data_per_symbol = sd.ofdm.n_subcarriers - sd.ofdm.pilot_idx.size();
-
-            int ofdm_blocks = ceil((float)total_symbols / data_per_symbol);
-
-            total_symbols = ofdm_blocks * data_per_symbol;
-        }
-
-        // sd.bits = pic_read();
-
-        sd.bits.resize(total_symbols * bits_ps);
-
-        for (size_t i = 0; i < sd.bits.size(); ++i)
-            sd.bits[i] = rand() % 2;
-
-        CRC = calculateCRC16_fromBits(sd.bits);
-
-        for (int16_t bit : CRC)
-        {
-            sd.bits.push_back(bit);
-        }
-
-        std::vector<int16_t> encoded_bits = hamming_encoder(sd.bits);
-
-        size_t remainder = encoded_bits.size() % bits_ps;
-        if (remainder != 0)
-        {
-            size_t padding = bits_ps - remainder;
-            for (size_t i = 0; i < padding; ++i)
-                encoded_bits.push_back(0);
-        }
-
-        std::vector<std::complex<float>> symbols = modulator(encoded_bits, encoded_bits.size(), mod_type);
-
-        if (sd.flags.ofdm_enabled_tx)
-        {
-            std::vector<std::complex<float>> preamble = generate_zc_preamble(sd);
-            std::vector<std::complex<float>> freq_blocks = insert_pilots(symbols, sd);
-            std::vector<std::complex<float>> data_signal = ofdm_modulator(freq_blocks, sd);
-            std::vector<std::complex<float>> header = generate_header(symbols.size(), sd);
-
-            tx_frame.reserve(preamble.size() + data_signal.size());
-            tx_frame.insert(tx_frame.end(), preamble.begin(), preamble.end());
-            tx_frame.insert(tx_frame.end(), header.begin(), header.end());
-            tx_frame.insert(tx_frame.end(), data_signal.begin(), data_signal.end());
-        }
-        else
-        {
-            tx_frame = std::move(symbols);
-        }
-
-        sd.flags.tx_regenerate = false;
+    case SignalType::Random: {
+        bits.reserve(num_bits);
+        for (size_t i = 0; i < num_bits; ++i)
+            bits.push_back(rand() % 2);
+        break;
     }
 
-    size_t num_blocks;
-    if (sd.flags.loopback_flag && !tx_frame.empty())
+    case SignalType::Text: {
+        const std::string &text = sd.tx_text;
+        num_bits = text.size() * 8;
+        bits.reserve(num_bits);
+        for (size_t c = 0; c < text.size(); ++c)
+            for (int b = 0; b < 8; ++b)
+                bits.push_back((text[c] >> b) & 1);
+        break;
+    }
+
+    case SignalType::File: {
+        if (!sd.tx_file_loaded || sd.tx_file_data.empty())
+            break;
+
+        size_t chunk_idx = sd.tx_file_chunk_idx;
+        size_t total_bytes = sd.tx_file_data.size();
+        size_t offset = chunk_idx * FILE_CHUNK_BYTES;
+
+        if (offset >= total_bytes)
+            break;
+
+        size_t chunk_size = std::min(FILE_CHUNK_BYTES, total_bytes - offset);
+
+        std::vector<uint8_t> payload;
+        payload.reserve(chunk_size);
+
+        payload.insert(payload.end(), sd.tx_file_data.begin() + static_cast<ptrdiff_t>(offset), sd.tx_file_data.begin() + static_cast<ptrdiff_t>(offset + chunk_size));
+
+        num_bits = payload.size() * 8;
+        bits.reserve(num_bits);
+        for (uint8_t byte : payload)
+            for (int b = 0; b < 8; ++b)
+                bits.push_back((byte >> b) & 1);
+        break;
+    }
+    }
+
+    std::vector<int16_t> header_bits;
+
+    for (int i = 0; i < 8; ++i)
+        header_bits.push_back((MAGIC_NUMBER >> i) & 1);
+
+    for (int i = 0; i < 16; ++i)
+        header_bits.push_back(((num_bits + 16) >> i) & 1);
+
+    for (int i = 0; i < 4; ++i)
+        header_bits.push_back((static_cast<int>(sd.type_of_modulation) >> i) & 1);
+
+    uint8_t current_flags = 0;
+    if (sd.is_first)
+        current_flags |= FrameFlag::IsFirst;
+    if (sd.is_last)
+        current_flags |= FrameFlag::IsLast;
+
+    for (int i = 0; i < 8; ++i)
+        header_bits.push_back((current_flags >> i) & 1);
+
+    for (int i = 0; i < 2; ++i)
+        header_bits.push_back((static_cast<int>(sd.type_of_signal) >> i) & 1);
+
+    auto crc = calculateCRC16(bits);
+    bits.insert(bits.end(), crc.begin(), crc.end());
+
+    auto header_symbols = modulator(header_bits, SignalModulation::BPSK);
+    auto header = insert_pilots(header_symbols, sd);
+    header = ofdm_modulator(header, sd);
+
+    auto symbols = modulator(bits, sd.type_of_modulation);
+    auto ZC = generate_zc_preamble(sd);
+    auto ofdm_signal = insert_pilots(symbols, sd);
+    ofdm_signal = ofdm_modulator(ofdm_signal, sd);
+
+    std::vector<std::complex<float>> signal;
+    signal.insert(signal.end(), ZC.begin(), ZC.end());
+    signal.insert(signal.end(), header.begin(), header.end());
+    signal.insert(signal.end(), ofdm_signal.begin(), ofdm_signal.end());
+
+    std::vector<int16_t> out;
+    out.reserve(signal.size() * 2);
+    const float amplitude = 100000.0f;
+    for (const auto &s : signal)
     {
-        float scale = 12000.0;
-        if (sd.flags.ofdm_enabled_tx)
-            scale = 120000.0;
+        out.push_back(static_cast<int16_t>(s.real() * amplitude));
+        out.push_back(static_cast<int16_t>(s.imag() * amplitude));
+    }
 
-        size_t frame_len = tx_frame.size();
+    return out;
+}
 
-        num_blocks = (frame_len + config.tx_mtu - 1) / config.tx_mtu;
-        total_samples = num_blocks * config.tx_mtu;
+std::vector<float> Spectrum_calulations(SharedData &sd, std::vector<std::complex<float>> raw_buffer)
+{
+    for (size_t i = 0; i < raw_buffer.size(); i++)
+    {
+        sd.fftplans.in_spectre[i][0] = raw_buffer[i].real();
+        sd.fftplans.in_spectre[i][1] = raw_buffer[i].imag();
+    }
 
-        sd.tx_samples.assign(2 * total_samples, 0);
+    fftwf_execute(sd.fftplans.plan_spectre);
 
-        for (size_t i = 0; i < frame_len; ++i)
-        {
-            sd.tx_samples[2 * i] = static_cast<int16_t>(tx_frame[i].real() * scale);
-            sd.tx_samples[2 * i + 1] = static_cast<int16_t>(tx_frame[i].imag() * scale);
-        }
+    std::vector<float> spec_db(sd.fftplans.N_spec);
+    for (int i = 0; i < sd.fftplans.N_spec; i++)
+    {
+        int shift_idx = (i + sd.fftplans.N_spec / 2) % sd.fftplans.N_spec;
+        float mag_sq = sd.fftplans.out_spectre[i][0] * sd.fftplans.out_spectre[i][0] + sd.fftplans.out_spectre[i][1] * sd.fftplans.out_spectre[i][1];
+        spec_db[shift_idx] = 10.0f * log10f(mag_sq + 1e-20f);
+    }
+
+    return spec_db;
+}
+
+Header parse_header(const std::vector<std::complex<float>> &symbols, SharedData &sd)
+{
+    Header h;
+    if (symbols.size() < static_cast<size_t>(sd.ofdmcfg.N + sd.ofdmcfg.CP))
+        return h;
+
+    std::vector<std::complex<float>> header;
+    header.insert(header.begin(), symbols.begin(), symbols.begin() + sd.ofdmcfg.N + sd.ofdmcfg.CP);
+    header = FFT_ofdm(header, sd);
+    header = ofdm_equalize(header, sd);
+    std::vector<int16_t> bits = demodulator(header, SignalModulation::BPSK);
+
+    uint8_t magic_val = 0;
+    for (int i = 0; i < 8; ++i)
+        if (bits[i])
+            magic_val |= (1 << i);
+
+    if (magic_val != 0x5A)
+        return h;
+
+    h.is_valid = true;
+
+    uint16_t samples_val = 0;
+    for (int i = 0; i < 16; ++i)
+        if (bits[8 + i])
+            samples_val |= (1 << i);
+    h.num_samples = static_cast<size_t>(samples_val);
+
+    uint8_t mod_val = 0;
+    for (int i = 0; i < 4; ++i)
+        if (bits[8 + 16 + i])
+            mod_val |= (1 << i);
+    h.modulation = static_cast<SignalModulation>(mod_val);
+
+    uint8_t flag_val = 0;
+    for (int i = 0; i < 8; ++i)
+        if (bits[8 + 16 + 4 + i])
+            flag_val |= (1 << i);
+    h.flag = flag_val;
+
+    uint8_t sig_val = 0;
+    for (int i = 0; i < 2; ++i)
+        if (bits[8 + 16 + 4 + 8 + i])
+            sig_val |= (1 << i);
+    h.sig_type = static_cast<SignalType>(sig_val);
+
+    return h;
+}
+
+const char *GetModulationName(SignalModulation mod)
+{
+    switch (mod)
+    {
+    case SignalModulation::BPSK:
+        return "BPSK";
+    case SignalModulation::QPSK:
+        return "QPSK";
+    case SignalModulation::QAM16:
+        return "QAM16";
+    case SignalModulation::QAM64:
+        return "QAM64";
+    default:
+        return "Unknown";
     }
 }
 
-void rebuild_ofdm_plans(SharedData &sd)
+uint16_t bits_per_sym(SignalModulation mod_type)
 {
-    int N = sd.ofdm.n_subcarriers;
-
-    usleep(50000);
-
-    if (sd.fft.ofdm_fft_plan)
+    switch (mod_type)
     {
-        fftw_destroy_plan(sd.fft.ofdm_fft_plan);
-        sd.fft.ofdm_fft_plan = nullptr;
+    case SignalModulation::BPSK:
+        return 1;
+    case SignalModulation::QPSK:
+        return 2;
+    case SignalModulation::QAM16:
+        return 4;
+    case SignalModulation::QAM64:
+        return 6;
+    default:
+        return 0;
     }
-    if (sd.fft.ofdm_ifft_plan)
-    {
-        fftw_destroy_plan(sd.fft.ofdm_ifft_plan);
-        sd.fft.ofdm_ifft_plan = nullptr;
-    }
-
-    if (sd.fft.ifft_in)
-    {
-        fftw_free(sd.fft.ifft_in);
-        sd.fft.ifft_in = nullptr;
-    }
-    if (sd.fft.ifft_out)
-    {
-        fftw_free(sd.fft.ifft_out);
-        sd.fft.ifft_out = nullptr;
-    }
-    if (sd.fft.ofdm_rx_in)
-    {
-        fftw_free(sd.fft.ofdm_rx_in);
-        sd.fft.ofdm_rx_in = nullptr;
-    }
-    if (sd.fft.ofdm_rx_out)
-    {
-        fftw_free(sd.fft.ofdm_rx_out);
-        sd.fft.ofdm_rx_out = nullptr;
-    }
-
-    if (N <= 0)
-        N = 128;
-
-    sd.fft.ifft_in = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * N);
-    sd.fft.ifft_out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * N);
-    sd.fft.ofdm_rx_in = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * N);
-    sd.fft.ofdm_rx_out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * N);
-
-    if (!sd.fft.ifft_in || !sd.fft.ifft_out || !sd.fft.ofdm_rx_in || !sd.fft.ofdm_rx_out)
-    {
-        logs::dsp.warn("FFT malloc failed! strerror {} errno {}", strerror(errno), errno);
-        exit(1);
-    }
-
-    sd.fft.ofdm_fft_plan = fftw_plan_dft_1d(N, sd.fft.ofdm_rx_in, sd.fft.ofdm_rx_out, FFTW_FORWARD, FFTW_ESTIMATE);
-    sd.fft.ofdm_ifft_plan = fftw_plan_dft_1d(N, sd.fft.ifft_in, sd.fft.ifft_out, FFTW_BACKWARD, FFTW_ESTIMATE);
-
-    if (!sd.fft.ofdm_fft_plan || !sd.fft.ofdm_ifft_plan)
-    {
-        logs::dsp.warn("FFT plan creation failed! strerror {} errno {}", strerror(errno), errno);
-        exit(1);
-    }
-
-    sd.flags.ofdm_config_changed = false;
 }
 
-float SNR_calculation(const std::vector<std::complex<float>> &signal)
+std::vector<std::complex<float>> get_reference_constellation(SignalModulation type)
 {
-    const size_t NOISE_WIN = 32;
-    const size_t SIGNAL_WIN = 256;
+    int bps = 1;
+    if (type == SignalModulation::QPSK)
+        bps = 2;
+    if (type == SignalModulation::QAM16)
+        bps = 4;
+    if (type == SignalModulation::QAM64)
+        bps = 6;
 
-    if (signal.size() < NOISE_WIN + SIGNAL_WIN)
-        return 0.0f;
+    int num_points = 1 << bps;
 
-    float sum_noise = 0.0f;
-    for (size_t i = 0; i < NOISE_WIN; ++i)
-        sum_noise += norm(signal[i]);
-    float rms_noise = sqrtf(sum_noise / NOISE_WIN);
-    if (rms_noise < 1e-4f)
-        rms_noise = 1e-4f;
+    std::vector<int16_t> bits;
+    for (int i = 0; i < num_points; ++i)
+        for (int b = 0; b < bps; ++b)
+            bits.push_back((i >> b) & 1);
 
-    size_t sig_start = signal.size() / 4;
-    float sum_signal = 0.0f;
-    for (size_t i = sig_start; i < sig_start + SIGNAL_WIN; ++i)
-        sum_signal += norm(signal[i]);
-    float rms_signal = sqrtf(sum_signal / SIGNAL_WIN);
-
-    return 20.0f * log10f(rms_signal / rms_noise);
+    return modulator(bits, type);
 }
 
-static std::complex<float> find_nearest_symbol(std::complex<float> received, const std::vector<std::complex<float>> &constellation)
+std::complex<float> find_nearest_symbol(std::complex<float> received, const std::vector<std::complex<float>> &reference)
 {
     float min_dist = 1e30f;
-    std::complex<float> best = constellation[0];
+    std::complex<float> best = reference[0];
 
-    for (const auto &sym : constellation)
+    for (const auto &sym : reference)
     {
         float dist = norm(received - sym);
         if (dist < min_dist)
@@ -222,84 +296,37 @@ static std::complex<float> find_nearest_symbol(std::complex<float> received, con
     return best;
 }
 
-float calculate_EVM(const std::vector<std::complex<float>> &received, const std::vector<std::complex<float>> &constellation)
+float EVM_calculate(const std::vector<std::complex<float>> &received, const std::vector<std::complex<float>> &reference)
 {
-    if (received.empty() || constellation.empty())
-        return 100.0f;
+    if (received.empty() || reference.empty())
+        return 100.f;
 
-    float error_power = 0.0f;
-    float signal_power = 0.0f;
+    float P_error = 0.f;
+    float P_signal = 0.f;
 
     for (const auto &sym : received)
     {
-        std::complex<float> ideal = find_nearest_symbol(sym, constellation);
-        error_power += norm(sym - ideal);
-        signal_power += norm(ideal);
+        std::complex<float> closest = find_nearest_symbol(sym, reference);
+        P_error += norm(sym - closest);
+        P_signal += norm(closest);
     }
 
-    if (signal_power < 1e-10f)
-        return 100.0f;
+    if (P_signal < 1e-10f)
+        return 100.f;
 
-    return 100.0f * sqrtf(error_power / signal_power);
+    return 100.f * sqrtf(P_error / P_signal);
 }
 
-std::vector<int16_t> pic_read()
+const char *GetSignalTypeName(SignalType type)
 {
-    std::string filename = "image.webp";
-    std::ifstream file(filename, std::ios::binary);
-
-    if (!file)
+    switch (type)
     {
-        spdlog::error("Ошибка открытия файла");
-        return {};
+    case SignalType::Random:
+        return "Random";
+    case SignalType::Text:
+        return "Text";
+    case SignalType::File:
+        return "File";
     }
-
-    std::vector<uint8_t> buffer(std::istreambuf_iterator<char>(file), {});
-    file.close();
-
-    spdlog::info("Файл прочитан. Размер: {} Байт.", buffer.size());
-
-    std::vector<int16_t> bits;
-    bits.reserve(buffer.size() * 8);
-
-    for (int i = 0; i < buffer.size(); ++i)
-        for (int j = 7; j >= 0; --j)
-        {
-            int16_t bit = (buffer[i] >> j) & 1U;
-            bits.push_back(bit);
-        }
-
-    return bits;
-}
-
-void pic_write(std::vector<int16_t> buffer)
-{
-    std::string filename = "image_out.png";
-    std::ofstream file("data.bin", std::ios::out | std::ios::binary);
-
-    std::vector<uint8_t> bytes;
-    bytes.reserve(buffer.size() / 8);
-
-    size_t bit_pos = 0;
-    size_t byte_pos = 0;
-    uint8_t byte = 0;
-    while (bit_pos < buffer.size())
-    {
-        auto bit = buffer[bit_pos];
-
-        byte |= (bit) & (1U << (8 - (bit_pos % 8)));
-
-        if (bit_pos % 8 == 0 && bit_pos > 0)
-            bytes.push_back(byte);
-        byte = 0;
-        byte_pos++;
-
-        bit_pos++;
-    }
-
-    if (file.is_open())
-    {
-        file.write(reinterpret_cast<const char *>(bytes.data()), bytes.size());
-        file.close();
-    }
+    return "Unknown";
 }

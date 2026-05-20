@@ -1,36 +1,47 @@
 #include "backends/imgui_impl_opengl3.h"
 #include "backends/imgui_impl_sdl2.h"
-#include "common.h"
+#include "common.hpp"
+#include "functions.hpp"
 #include "imgui.h"
 #include "implot.h"
 #include "logger.hpp"
-#include "ofdm_core.h"
-#include "sdr_hw.h"
+#include "ofdm_core.hpp"
 
 #include <GL/glew.h>
 #include <SDL2/SDL.h>
+#include <cstddef>
+#include <fftw3.h>
 #include <thread>
+#include <vector>
 
 int main()
 {
-    struct SDRConfig config = {};
+    struct SharedData sd = {};
+    update_pilots(sd);
+    auto devices = SDR::findDevices();
+    if (devices.empty())
+    {
+        logs::sdr.error("SDR doesn't found");
+        return -1;
+    }
 
-    auto sdr_devices = find_pluto_devices();
-    int selected_device_index = 0;
+    std::string device_uri = devices[0].at("uri");
+    SDR sdr(device_uri);
 
-    SharedData sd;
+    sd.fftplans.in_spectre = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.fftplans.N_spec);
+    sd.fftplans.out_spectre = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.fftplans.N_spec);
+    sd.fftplans.plan_spectre = fftwf_plan_dft_1d(sd.fftplans.N_spec, sd.fftplans.in_spectre, sd.fftplans.out_spectre, FFTW_FORWARD, FFTW_ESTIMATE);
 
-    std::thread Back, Stream;
+    sd.fftplans.in_ifft = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.ofdmcfg.N);
+    sd.fftplans.out_ifft = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.ofdmcfg.N);
+    sd.fftplans.plan_ifft = fftwf_plan_dft_1d(sd.ofdmcfg.N, sd.fftplans.in_ifft, sd.fftplans.out_ifft, FFTW_BACKWARD, FFTW_ESTIMATE);
 
-    sd.flags.ofdm_config_changed = true;
+    sd.fftplans.in_fft = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.ofdmcfg.N);
+    sd.fftplans.out_fft = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.ofdmcfg.N);
+    sd.fftplans.plan_fft = fftwf_plan_dft_1d(sd.ofdmcfg.N, sd.fftplans.in_fft, sd.fftplans.out_fft, FFTW_FORWARD, FFTW_ESTIMATE);
 
-    sd.fft.fft_in = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * sd.fft.FFT_SIZE);
-    sd.fft.fft_out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * sd.fft.FFT_SIZE);
-
-    sd.fft.spectrum_plan = fftw_plan_dft_1d(sd.fft.FFT_SIZE, sd.fft.fft_in, sd.fft.fft_out, FFTW_FORWARD, FFTW_ESTIMATE);
-
-    rebuild_ofdm_plans(sd);
-    update_pilots(std::ref(sd));
+    std::thread sdr_thread(SDRStream, std::ref(sd), std::ref(sdr));
+    std::thread dsp_thread(DSPThread, std::ref(sd));
 
     SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER);
 
@@ -72,609 +83,407 @@ int main()
             if (event.type == SDL_QUIT)
             {
                 running = false;
-                sd.flags.g_running = false;
+                sd.allRunning = false;
             }
         }
-
-        if (sd.flags.ofdm_config_changed)
-        {
-            if (sd.flags.g_running)
-            {
-                sd.flags.g_running = false;
-
-                sd.flags.ofdm_eq_enabled = false;
-
-                if (Back.joinable())
-                    Back.join();
-                if (Stream.joinable())
-                    Stream.join();
-
-                rebuild_ofdm_plans(sd);
-
-                sd.flags.g_running = true;
-
-                Back = std::thread(rx_back, std::ref(sd));
-                Stream = std::thread(SDRStream, std::ref(sd), std::ref(config));
-            }
-            else
-            {
-                rebuild_ofdm_plans(sd);
-            }
-        }
-
-        sdr_devices = find_pluto_devices();
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
         ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_None);
 
-        if (ImGui::BeginMainMenuBar())
+        ImGui::Begin("Panel");
+
+        if (ImGui::CollapsingHeader("Debug", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            if (ImGui::BeginMenu("Device"))
+            ImGui::Text("FPS: %.1f (%.3f ms)", io.Framerate, 1000.0f / io.Framerate);
+            ImGui::Text("Stream latency: %.2f us", sd.avg_stream_time);
+            ImGui::Text("DSP latency: %.2f us", sd.avg_dsp_time);
+            ImGui::Text("PSS Sync: %d", sd.dspflags.PSS ? sd.ofdmcfg.best_idx : -1);
+            ImGui::Text("CFO: %.2f", sd.dspflags.CFO ? sd.ofdmcfg.cfo_est : -1);
+            ImGui::Text("BLER: %.2f", sd.stats.BLER);
+        }
+
+        if (ImGui::CollapsingHeader("Header", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Text("Num Samples: %ld", sd.hdr.num_samples);
+            ImGui::Text("Modulation Type: %s", GetModulationName(sd.hdr.modulation));
+
+            ImGui::Text("Flags:");
+            if (sd.hdr.flag != 0)
             {
-                for (size_t i = 0; i < sdr_devices.size(); ++i)
+                if (sd.hdr.flag & FrameFlag::IsFirst)
                 {
-                    const char *label = SoapySDRKwargs_get(&sdr_devices[i], "label");
-                    const char *uri = SoapySDRKwargs_get(&sdr_devices[i], "uri");
-                    bool is_selected = (static_cast<size_t>(selected_device_index) == i);
-
-                    if (ImGui::MenuItem(label, nullptr, is_selected))
-                    {
-                        selected_device_index = static_cast<int>(i);
-                        {
-                            std::lock_guard<std::mutex> lock(sd.mtx);
-                            sd.dev_f.selected_uri = uri ? std::string(uri) : "";
-                        }
-                    }
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0, 1, 0, 1), "[FIRST]");
                 }
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::MenuItem("Start", nullptr, false, !sd.flags.g_running))
-            {
-                std::string uri;
+                if (sd.hdr.flag & FrameFlag::IsLast)
                 {
-                    std::lock_guard<std::mutex> lock(sd.mtx);
-                    uri = sd.dev_f.selected_uri;
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(1, 0.5f, 0, 1), "[LAST]");
                 }
-
-                if (uri.empty() && !sdr_devices.empty())
-                {
-                    uri = SoapySDRKwargs_get(&sdr_devices[0], "uri");
-                }
-
-                if (uri.empty())
-                {
-                    logs::sdr.info("No device URI available!");
-                    continue;
-                }
-
-                config = SDRinit(const_cast<char *>(uri.c_str()));
-
-                if (!config.sdr)
-                {
-                    logs::sdr.info("Failed to initialize SDR device!");
-                    continue;
-                }
-
-                sd.flags.g_running = true;
-                Back = std::thread(rx_back, std::ref(sd));
-                Stream = std::thread(SDRStream, std::ref(sd), std::ref(config));
             }
             else
             {
-                if (ImGui::MenuItem("Stop TX", nullptr, true, sd.flags.g_running))
-                {
-                    sd.flags.g_running = false;
-                    if (Back.joinable())
-                    {
-                        Back.join();
-                    }
-                    if (Stream.joinable())
-                    {
-                        Stream.join();
-                    }
-                }
-            }
-
-            if (ImGui::MenuItem("Exit", nullptr, false, true))
-            {
-                sd.flags.g_running = false;
-                if (Back.joinable())
-                {
-                    Back.join();
-                }
-                if (Stream.joinable())
-                {
-                    Stream.join();
-                }
-                running = false;
-            }
-
-            bool loopback = sd.flags.loopback_flag;
-            if (ImGui::Checkbox("Loopback", &loopback))
-            {
-                sd.flags.loopback_flag = loopback;
-            }
-
-            if (sd.flags.loopback_flag)
-            {
                 ImGui::SameLine();
-                if (ImGui::Button("Config"))
-                {
-                    ImGui::OpenPopup("TX Settings");
-                }
+                ImGui::TextDisabled("None");
             }
 
-            if (ImGui::BeginPopup("TX Settings"))
+            ImGui::Text("Signal Type: %s", GetSignalTypeName(sd.hdr.sig_type));
+        }
+
+        if (ImGui::CollapsingHeader("SDR Settings"))
+        {
+            ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.3f);
+            if (ImGui::SliderFloat("RX Gain", &sd.SDR.rx_gain, 0.0f, 73.0f, "%.1f dB"))
+                sd.SDR.dirty_mask |= SDRField::RxGain;
+            ImGui::SameLine();
+            if (ImGui::SliderFloat("TX Gain ", &sd.SDR.tx_gain, 0.0f, 89.0f, "%.1f dB"))
+                sd.SDR.dirty_mask |= SDRField::TxGain;
+
+            if (ImGui::InputFloat("RX Hz   ", &sd.SDR.rx_freq, 1000.0f, 1000000.0f, "%.3e"))
+                sd.SDR.dirty_mask |= SDRField::RxFreq;
+            ImGui::SameLine();
+            if (ImGui::InputFloat("TX Hz   ", &sd.SDR.tx_freq, 1000.0f, 1000000.0f, "%.3e"))
+                sd.SDR.dirty_mask |= SDRField::TxFreq;
+
+            if (ImGui::InputFloat("RX Bw   ", &sd.SDR.rx_bw, 100000.0f, 1000000.0f, "%.3e"))
+                sd.SDR.dirty_mask |= SDRField::RxBW;
+            ImGui::SameLine();
+            if (ImGui::InputFloat("TX Bw   ", &sd.SDR.tx_bw, 100000.0f, 1000000.0f, "%.3e"))
+                sd.SDR.dirty_mask |= SDRField::TxBW;
+
+            if (ImGui::InputFloat("RX SRate", &sd.SDR.rx_sample_rate, 100000.0f, 1000000.0f, "%.3e"))
+                sd.SDR.dirty_mask |= SDRField::RxSampleRate;
+            ImGui::SameLine();
+            if (ImGui::InputFloat("TX SRate", &sd.SDR.tx_sample_rate, 100000.0f, 1000000.0f, "%.3e"))
+                sd.SDR.dirty_mask |= SDRField::TxSampleRate;
+
+            ImGui::PopItemWidth();
+        }
+
+        if (ImGui::CollapsingHeader("Transmission Control"))
+        {
+            static int sel_sig = 0;
+            const char *names_sig[] = { "Random", "Text", "File" };
+            if (ImGui::Combo("Type", &sel_sig, names_sig, 3))
             {
-                ImGui::SeparatorText("TX Configuration");
+                sd.type_of_signal = static_cast<SignalType>(sel_sig);
+                sd.sig_changed = true;
+            }
 
-                static int tx_mode = 0;
+            if (sel_sig == 1)
+            {
+                static char tx_buf[1500] = "Text";
+                ImGui::InputTextMultiline("Message", tx_buf, sizeof(tx_buf), ImVec2(-1, 60));
+                sd.tx_text = tx_buf;
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    sd.sig_changed = true;
 
-                const char *tx_modes[] = { "QAM::2", "QAM::4", "QAM::16", "QAM::64",
-                                           "QAM::2 + OFDM", "QAM::4 + OFDM", "QAM::16 + OFDM", "QAM::64 + OFDM" };
+                ImGui::SeparatorText("Received");
+                ImGui::BeginChild("##rx_text", ImVec2(-1, 100), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+                ImGui::TextWrapped("%s", sd.decoded_text.c_str());
+                if (sd.decoded_text.empty())
+                    ImGui::TextDisabled("Waiting for text...");
+                ImGui::EndChild();
+            }
 
-                if (ImGui::Combo("TX Mode", &tx_mode, tx_modes, IM_ARRAYSIZE(tx_modes)))
+            if (sel_sig == 2)
+            {
+                ImGui::SeparatorText("TX File");
+
+                static char file_path_buf[1024] = "";
+                ImGui::SetNextItemWidth(-80.0f);
+                ImGui::InputText("##filepath", file_path_buf, sizeof(file_path_buf));
+                ImGui::SameLine();
+
+                if (ImGui::Button("Load##file"))
                 {
-                    std::lock_guard<std::mutex> lock(sd.mtx);
-
-                    if (tx_mode < 4)
+                    sd.tx_file_path = file_path_buf;
+                    if (LoadFileForTX(sd))
                     {
-                        sd.flags.ofdm_enabled_tx = false;
-                        sd.flags.modulation_index = tx_mode;
+                        sd.sig_changed = true;
+                        logs::sdr.info("File loaded: {} ({} bytes)", sd.tx_file_name, sd.tx_file_data.size());
                     }
                     else
                     {
-                        sd.flags.ofdm_enabled_tx = true;
-                        sd.flags.modulation_index = tx_mode - 4;
+                        sd.tx_file_loaded = false;
+                        logs::sdr.error("Failed to open file: {}", sd.tx_file_path);
                     }
-
-                    sd.flags.tx_regenerate = true;
                 }
 
-                static int tx_symbol_count = 256;
+                if (sd.tx_file_loaded)
+                {
+                    size_t file_kb = sd.tx_file_data.size() / 1024;
+                    size_t file_b = sd.tx_file_data.size() % 1024;
+                    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Loaded: %s  (%zu KB %zu B)", sd.tx_file_name.c_str(), file_kb, file_b);
+                    ImGui::Text("Chunks: %zu x %zu B", sd.tx_file_total_chunks, FILE_CHUNK_BYTES);
 
-                if (ImGui::SliderInt("TX Symbols", &tx_symbol_count, 16, 4096))
+                    ImGui::Spacing();
+                    if (ImGui::Button("Send File", ImVec2(-1, 0)))
+                    {
+                        sd.tx_file_chunk_idx = 0;
+                        sd.tx_once = true;
+                    }
+
+                    if (sd.tx_file_total_chunks > 0)
+                    {
+                        float progress = static_cast<float>(sd.tx_file_chunk_idx) / static_cast<float>(sd.tx_file_total_chunks);
+                        char prog_label[64];
+                        snprintf(prog_label, sizeof(prog_label), "%zu / %zu chunks", sd.tx_file_chunk_idx, sd.tx_file_total_chunks);
+                        ImGui::ProgressBar(progress, ImVec2(-1, 0), prog_label);
+                    }
+                }
+                else
+                {
+                    ImGui::TextDisabled("No file loaded");
+                    ImGui::BeginDisabled();
+                    ImGui::Button("Send File", ImVec2(-1, 0));
+                    ImGui::EndDisabled();
+                }
+
+                ImGui::SeparatorText("RX File");
+                if (sd.file_received)
+                {
+                    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Received: %s", sd.rx_file_name.c_str());
+                    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Saved to: %s", sd.rx_file_save_path.c_str());
+                    ImGui::Text("Size: %zu bytes", sd.rx_file_chunks_buf.size());
+
+                    if (ImGui::Button("Clear##rxfile"))
+                    {
+                        sd.file_received = false;
+                        sd.rx_file_name.clear();
+                        sd.rx_file_chunks_buf.clear();
+                        sd.rx_file_save_path.clear();
+                    }
+                }
+                else if (!sd.rx_file_name.empty())
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Receiving: %s (%zu bytes so far...)", sd.rx_file_name.c_str(), sd.rx_file_chunks_buf.size());
+                    float prog = static_cast<float>(sd.rx_file_chunks_buf.size() % 10000) / 10000.0f;
+                    ImGui::ProgressBar(prog, ImVec2(-1, 0), "receiving...");
+                }
+                else
+                {
+                    ImGui::TextDisabled("Waiting for file...");
+                }
+            }
+
+            if (sel_sig == 0)
+            {
+                size_t old_num_samples = sd.num_samples;
+                ImGui::SliderInt("Bits Count", (int *)&sd.num_samples, 0, 10000);
+                if (old_num_samples != sd.num_samples)
+                    sd.sig_changed = true;
+            }
+
+            static int sel_mod = 0;
+            const char *names_mod[] = { "BPSK", "QPSK", "QAM16", "QAM64" };
+            if (ImGui::Combo("Modulation", &sel_mod, names_mod, 4))
+            {
+                sd.type_of_modulation = static_cast<SignalModulation>(sel_mod);
+                sd.sig_changed = true;
+            }
+
+            if (sel_sig != 2)
+            {
+                if (ImGui::Button("Send Burst"))
+                    sd.tx_once = true;
+                ImGui::SameLine();
+                ImGui::Checkbox("Continuous TX", &sd.tx_continuous);
+            }
+        }
+
+        if (ImGui::CollapsingHeader("OFDM Settings"))
+        {
+            bool changed = false;
+
+            if (ImGui::SliderInt("Symbol Len (N)", &sd.ofdmcfg.N, 64, 2048))
+            {
+                changed = true;
+                sd.sig_changed = true;
+            }
+
+            int max_cp = sd.ofdmcfg.N / 2;
+            if (ImGui::SliderInt("Prefix Len (CP)", &sd.ofdmcfg.CP, 4, max_cp))
+            {
+                changed = true;
+                sd.sig_changed = true;
+            }
+
+            if (ImGui::SliderInt("ZC Root (q)", (int *)&sd.ofdmcfg.q, 1, 127))
+            {
+                changed = true;
+                sd.sig_changed = true;
+            }
+
+            if (ImGui::SliderInt("Pilots Count", &sd.ofdmcfg.num_pilots, 2, sd.ofdmcfg.N / 8))
+            {
+                changed = true;
+                sd.sig_changed = true;
+            }
+
+            if (changed)
+            {
+                sd.SDR.dirty_mask |= SDRField::OFDMConfig;
+                update_pilots(sd);
+            }
+        }
+
+        if (ImGui::CollapsingHeader("DSP Control"))
+        {
+            if (ImGui::Checkbox("PSS", &sd.dspflags.PSS))
+            {
+                if (!sd.dspflags.PSS)
                 {
                     std::lock_guard<std::mutex> lock(sd.mtx);
-                    sd.tx_symbol_count = tx_symbol_count;
-                    sd.flags.tx_regenerate = true;
+                    sd.timing_offsets.clear();
+                    sd.gui_timing_offsets.clear();
                 }
-
-                if (!sd.flags.loopback_flag)
-                {
-                    ImGui::CloseCurrentPopup();
-                }
-
-                if (tx_mode >= 3)
-                {
-                    ImGui::SeparatorText("OFDM Settings");
-
-                    int old_n = sd.ofdm.n_subcarriers;
-
-                    if (ImGui::SliderInt("Symbol Len", &sd.ofdm.n_subcarriers, 1, 128))
-                    {
-                        std::lock_guard<std::mutex> lock(sd.mtx);
-                        if (sd.ofdm.n_subcarriers != old_n)
-                        {
-                            sd.flags.ofdm_config_changed = true;
-                        }
-                    }
-
-                    int old_cp = sd.ofdm.cp_len;
-
-                    if (ImGui::SliderInt("Prefix Len", &sd.ofdm.cp_len, 1, sd.ofdm.n_subcarriers / 4))
-                    {
-                        if (sd.ofdm.cp_len != old_cp)
-                        {
-                            sd.flags.ofdm_config_changed = true;
-                        }
-                    }
-                    ImGui::SliderInt("Num Pilots", &sd.ofdm.num_pilots, 1, 20);
-
-                    if (ImGui::Button("Update Pilots"))
-                        update_pilots(std::ref(sd));
-
-                    ImGui::SliderInt("Guard DC", &sd.ofdm.guard_dc, 1, 20);
-                    ImGui::SliderInt("Guard Edge", &sd.ofdm.guard_edge, 1, 20);
-                }
-
-                ImGui::EndPopup();
             }
-
-            ImGui::EndMainMenuBar();
-        }
-
-        ImGui::Begin("Control Panel", nullptr, ImGuiWindowFlags_NoCollapse);
-
-        ImGui::SeparatorText("Debug");
-        ImGui::Text("FPS: %.1f (%.3f ms)", io.Framerate, 1000.0f / io.Framerate);
-        ImGui::Text("DSP Time %f", sd.avg_time);
-        ImGui::Text("Stream Time %f", sd.avg_stream_time);
-
-        ImGui::SeparatorText("Stats");
-        ImGui::Text("[BLER] Blocks: %ld", sd.bler_total_blocks);
-        ImGui::Text("Errors: %ld", sd.bler_error_blocks);
-        ImGui::Text("Rate %f", (sd.bler_value * 100.0));
-        ImGui::Text("EVM %f", sd.EVM);
-        ImGui::Text("SNR %f Db", sd.SNR_DB);
-
-        ImGui::SeparatorText("Hamming Stats");
-
-        ImGui::Text("Blocks processed: %lu", sd.Ham_stats.blocks_processed);
-        ImGui::Text("Blocks with errors: %lu (%.2f%%)", sd.Ham_stats.blocks_with_errors, sd.Ham_stats.blocks_processed > 0 ? 100.0f * sd.Ham_stats.blocks_with_errors / sd.Ham_stats.blocks_processed : 0.0f);
-
-        ImGui::Text("Bits corrected: %lu", sd.Ham_stats.bits_corrected);
-
-        ImGui::Text("Uncorrectable errors: %lu", sd.Ham_stats.uncorrectable);
-
-        if (ImGui::Button("Reset Stats"))
-        {
-            sd.Ham_stats = {};
-        }
-
-        ImGui::SeparatorText("SDR Config");
-
-        float rx_gain = sd.rx_gain;
-        if (ImGui::SliderFloat("rx gain", &rx_gain, -40, 40))
-        {
-            sd.rx_gain = rx_gain;
-            sd.flags.rx_gain_changed = true;
-        }
-
-        float tx_gain = sd.tx_gain;
-        if (ImGui::SliderFloat("Tx gain", &tx_gain, -40, 89))
-        {
-            sd.tx_gain = tx_gain;
-            sd.flags.tx_gain_changed = true;
-        }
-
-        float freq = sd.freq;
-        if (ImGui::SliderFloat("Carrier Freq", &freq, 200e6, 900e6, "%e"))
-        {
-            sd.freq = freq;
-            sd.freq = freq;
-            sd.flags.rx_freq_changed = true;
-            sd.flags.tx_freq_changed = true;
-        }
-
-        float sample_rate = sd.rx_bandwidth;
-        if (ImGui::SliderFloat("Rx Sample Rate", &sample_rate, 0.2e6, 10e6, "%e"))
-        {
-            sd.rx_bandwidth = sample_rate;
-            sd.flags.rx_bw_changed = true;
-        }
-
-        float rx_bandwidth = sd.trx_bandwidth;
-        if (ImGui::SliderFloat("TX BandWidth", &rx_bandwidth, 0.2e6, 10e6, "%e"))
-        {
-            sd.trx_bandwidth = rx_bandwidth;
-            sd.flags.tx_bw_changed = true;
-        }
-
-        ImGui::SeparatorText("OFDM Control Panel");
-
-        ImGui::Checkbox("Ofdm receiver", &sd.flags.ofdm_enabled);
-
-        if (sd.flags.ofdm_enabled)
-        {
-            ImGui::Checkbox("Time Sync", &sd.flags.ofdm_time_est);
             ImGui::SameLine();
-            ImGui::Text("Signal Begin: %d", sd.ofdm.sig_begin);
-            ImGui::SliderInt("Offset", &sd.ofdm_sync.timing_offset, -20, 20);
-            ImGui::Checkbox("Cut Begin", &sd.flags.cut_begin);
-            ImGui::Checkbox("Decode Header", &sd.flags.header_dec);
+            ImGui::SliderInt("Mystery Offset", &sd.ofdmcfg.mystery_offset, -25, 25);
+
+            ImGui::Checkbox("FFT", &sd.dspflags.FFT);
             ImGui::SameLine();
-            ImGui::Text("Packet Len %d", sd.ofdm_sync.packet_len);
-            ImGui::Checkbox("CFO Sync", &sd.flags.cfo_est_enabled);
+            ImGui::Checkbox("CFO", &sd.dspflags.CFO);
             ImGui::SameLine();
-            ImGui::Text("CFO Est: %f", sd.ofdm_sync.cfo_estimate);
-            ImGui::Checkbox("FFT", &sd.flags.ofdm_fft_enabled);
-            ImGui::Checkbox("EQ", &sd.flags.ofdm_eq_enabled);
+            ImGui::Checkbox("EQ ", &sd.dspflags.EQ);
         }
 
         ImGui::End();
 
-        ImGui::Begin("First TX Bits", nullptr, ImGuiWindowFlags_NoCollapse);
-
-        int N_tx = std::min(50, static_cast<int>(sd.bits.size()) / 2);
-        if (N_tx > 0)
+        ImGui::Begin("Raw Signal");
+        if (ImPlot::BeginPlot("##Raw Signal", ImVec2(-1, -1)))
         {
-            ImGui::Text("Idx |   I   |   Q");
-            ImGui::Separator();
-            for (int i = 0; i < N_tx; ++i)
-            {
-                int16_t I = sd.bits[2 * i];
-                int16_t Q = sd.bits[2 * i + 1];
-                ImGui::Text("%3d | %5d | %5d", i, I, Q);
-            }
-        }
-        else
-        {
-            ImGui::Text("No TX samples yet");
-        }
-
-        ImGui::End();
-
-        ImGui::Begin("First RX Bits", nullptr, ImGuiWindowFlags_NoCollapse);
-
-        int N_rx = std::min(50, static_cast<int>(sd.rx_bits.size()) / 2);
-        if (N_rx > 0)
-        {
-            ImGui::Text("Idx |   I   |   Q");
-            ImGui::Separator();
-            for (int i = 0; i < N_rx; ++i)
-            {
-                if ((2 * i + 1) > 2 * N_rx || (2 * i) > 2 * N_rx)
-                    break;
-                int16_t I = sd.rx_bits[2 * i];
-                int16_t Q = sd.rx_bits[2 * i + 1];
-                ImGui::Text("%3d | %5d | %5d", i, I, Q);
-            }
-        }
-        else
-        {
-            ImGui::Text("No RX samples yet");
-        }
-
-        ImGui::End();
-
-        ImGui::Begin("Constellation and RX Scope", nullptr, ImGuiWindowFlags_NoTitleBar);
-
-        if (ImPlot::BeginPlot("Constellation", ImVec2(600, 600)))
-        {
-            std::vector<float> plot_real, plot_imag;
+            std::vector<float> I, Q;
             {
                 std::lock_guard<std::mutex> lock(sd.mtx);
-                size_t limit = std::min(sd.buffer.size(), (size_t)500);
-                plot_real.reserve(sd.buffer.size() / 2);
-                plot_imag.reserve(sd.buffer.size() / 2);
-                for (size_t i = 0; i < limit; ++i)
+                I.reserve(sd.gui_buffer.size() / 2);
+                Q.reserve(sd.gui_buffer.size() / 2);
+                for (const auto &val : sd.gui_buffer)
                 {
-                    plot_real.push_back(sd.buffer[i].real());
-                    plot_imag.push_back(sd.buffer[i].imag());
+                    I.push_back(val.real());
+                    Q.push_back(val.imag());
                 }
             }
-            if (!plot_real.empty())
+            if (!I.empty())
             {
-                ImPlot::SetupAxesLimits(-2, 2, -2, 2);
-                ImPlot::PlotScatter("IQ", plot_real.data(), plot_imag.data(), plot_real.size());
+                ImPlot::PlotLine("In-phase", I.data(), I.size());
+                ImPlot::PlotLine("Quadrature", Q.data(), Q.size());
             }
             ImPlot::EndPlot();
         }
+        ImGui::End();
 
-        ImGui::SameLine();
-
-        if (ImPlot::BeginPlot("RX Scope", ImVec2(-1, 600)))
+        ImGui::Begin("Timing offsets");
+        if (ImPlot::BeginPlot("##Timing offsets", ImVec2(-1, -1)))
         {
-            std::vector<float> scope_I, scope_Q;
+            std::lock_guard<std::mutex> lock(sd.mtx);
+            ImPlot::PlotLine("Offset", sd.gui_timing_offsets.data(), sd.gui_timing_offsets.size());
+            ImPlot::EndPlot();
+        }
+        ImGui::End();
+
+        ImGui::Begin("Constellation", nullptr, ImGuiWindowFlags_NoTitleBar);
+        if (ImPlot::BeginPlot("##Constellation", ImVec2(-1, -1)))
+        {
+            static std::vector<float> I, Q;
+            const size_t MAX_POINTS = 1000;
             {
                 std::lock_guard<std::mutex> lock(sd.mtx);
-                scope_I.reserve(sd.buffer.size() / 2);
-                scope_Q.reserve(sd.buffer.size() / 2);
-                for (const auto &val : sd.buffer)
+                size_t total_size = sd.gui_buffer.size();
+                size_t points_plot = std::min(total_size, MAX_POINTS);
+                I.clear();
+                Q.clear();
+                I.reserve(points_plot);
+                Q.reserve(points_plot);
+                size_t start_idx = total_size - points_plot;
+                for (size_t i = start_idx; i < total_size; ++i)
                 {
-
-                    scope_I.push_back(val.real());
-                    scope_Q.push_back(val.imag());
+                    I.push_back(sd.gui_buffer[i].real());
+                    Q.push_back(sd.gui_buffer[i].imag());
                 }
             }
+            if (!I.empty())
+                ImPlot::PlotScatter("IQ", I.data(), Q.data(), I.size());
+            ImPlot::EndPlot();
+        }
+        ImGui::End();
 
-            if (!scope_I.empty())
+        ImGui::Begin("Spectre");
+        if (ImPlot::BeginPlot("##SpectrePlot", ImVec2(-1, -1)))
+        {
+            ImPlot::SetupAxes("Frequency (MHz)", "Magnitude (dB)");
+
+            std::vector<float> local_spec;
             {
-                ImPlot::SetupAxesLimits(0, scope_I.size(), -20000, 20000);
-                ImPlot::PlotLine("I", scope_I.data(), scope_I.size());
-                ImPlot::PlotLine("Q", scope_Q.data(), scope_Q.size());
+                std::lock_guard<std::mutex> lock(sd.mtx);
+                local_spec = sd.spectrum;
             }
-            else
+
+            std::vector<float> freq_axis(local_spec.size());
+            float fs = sd.SDR.rx_sample_rate;
+            float carrer = sd.SDR.rx_freq;
+            for (size_t i = 0; i < freq_axis.size(); ++i)
+                freq_axis[i] = (carrer - fs / 2.0f + i * (fs / freq_axis.size())) / 1e6f;
+
+            if (!local_spec.empty())
+                ImPlot::PlotLine("Spectrum", freq_axis.data(), local_spec.data(), local_spec.size());
+
+            if (ImPlot::IsPlotHovered())
             {
-                ImPlot::SetupAxesLimits(0, 100, -20000, 20000);
+                ImPlotPoint mouse = ImPlot::GetPlotMousePos();
+                ImPlot::DragLineX(555, &mouse.x, ImVec4(1, 1, 0, 0.1f), 1, ImPlotDragToolFlags_NoInputs);
+                ImPlot::DragLineY(666, &mouse.y, ImVec4(1, 1, 0, 0.1f), 1, ImPlotDragToolFlags_NoInputs);
+                ImGui::BeginTooltip();
+                ImGui::Text("Freq: %.3f MHz", mouse.x);
+                ImGui::Text("Ampl: %.1f dB", mouse.y);
+                ImGui::EndTooltip();
             }
             ImPlot::EndPlot();
         }
-
         ImGui::End();
 
-        ImGui::Begin("TX Samples", nullptr, ImGuiWindowFlags_NoTitleBar);
-
-        if (ImPlot::BeginPlot("TX Scope", ImVec2(-1, 600)))
+        ImGui::Begin("##Other", nullptr, ImGuiWindowFlags_NoTitleBar);
         {
-            std::vector<float> scope_I, scope_Q;
+            static std::vector<float> evm_render_buffer;
+            static std::vector<float> snr_render_buffer;
+            size_t samples_count = 0;
+
             {
                 std::lock_guard<std::mutex> lock(sd.mtx);
+                if (evm_render_buffer.size() != sd.stats.vec_size)
+                    evm_render_buffer.resize(sd.stats.vec_size);
+                if (snr_render_buffer.size() != sd.stats.vec_size)
+                    snr_render_buffer.resize(sd.stats.vec_size);
 
-                scope_I.reserve(sd.tx_samples.size() / 2);
-                scope_Q.reserve(sd.tx_samples.size() / 2);
+                samples_count = std::min((size_t)sd.stats.frames_processed, (size_t)sd.stats.vec_size);
 
-                for (size_t i = 0; i < sd.tx_samples.size() / 2; ++i)
+                size_t render_start = (sd.stats.vec_offset + 1) % sd.stats.vec_size;
+                for (size_t i = 0; i < samples_count; ++i)
                 {
-                    scope_I.push_back(sd.tx_samples[2 * i]);
-                    scope_Q.push_back(sd.tx_samples[2 * i + 1]);
+                    evm_render_buffer[i] = sd.stats.EVM_vec[(render_start + i) % sd.stats.vec_size];
+                    snr_render_buffer[i] = sd.stats.SNR_vec[(render_start + i) % sd.stats.vec_size];
                 }
             }
 
-            if (!scope_I.empty())
+            if (samples_count > 0)
             {
-                ImPlot::SetupAxesLimits(0, scope_I.size(), -20000, 20000);
-                ImPlot::PlotLine("I", scope_I.data(), scope_I.size());
-                ImPlot::PlotLine("Q", scope_Q.data(), scope_Q.size());
-            }
-            else
-            {
-                ImPlot::SetupAxesLimits(0, 100, -20000, 20000);
-            }
-            ImPlot::EndPlot();
-        }
-
-        ImGui::End();
-
-        ImGui::Begin("RX Samples", nullptr, ImGuiWindowFlags_NoTitleBar);
-
-        if (ImPlot::BeginPlot("TX Scope", ImVec2(-1, 600)))
-        {
-            std::vector<float> scope_I, scope_Q;
-            {
-                std::lock_guard<std::mutex> lock(sd.mtx);
-
-                scope_I.reserve(sd.buffer_without_dsp.size());
-                scope_Q.reserve(sd.buffer_without_dsp.size());
-
-                for (size_t i = 0; i < sd.buffer_without_dsp.size(); ++i)
+                if (ImPlot::BeginPlot("EVM", ImVec2(-1, 300)))
                 {
-                    scope_I.push_back(sd.buffer_without_dsp[i].real());
-                    scope_Q.push_back(sd.buffer_without_dsp[i].imag());
+                    ImPlot::SetupAxes("Frames", "EVM (%)");
+                    ImPlot::SetupAxesLimits(0, sd.stats.vec_size, 0, 100, ImGuiCond_Once);
+                    ImPlot::PlotLine("EVM", evm_render_buffer.data(), (int)samples_count);
+                    ImPlot::EndPlot();
                 }
-            }
-
-            if (!scope_I.empty())
-            {
-                ImPlot::SetupAxesLimits(0, scope_I.size(), -20000, 20000);
-                ImPlot::PlotLine("I", scope_I.data(), scope_I.size());
-                ImPlot::PlotLine("Q", scope_Q.data(), scope_Q.size());
-            }
-            else
-            {
-                ImPlot::SetupAxesLimits(0, 100, -20000, 20000);
-            }
-            ImPlot::EndPlot();
-        }
-
-        ImGui::End();
-
-        ImGui::Begin("FFT", nullptr, ImGuiWindowFlags_NoTitleBar);
-        if (ImPlot::BeginPlot("Spectre", ImVec2(-1, 400)))
-        {
-            std::vector<float> local_mag;
-            {
-                std::lock_guard<std::mutex> lock(sd.mtx);
-                if (sd.flags.fft_ready)
+                if (ImPlot::BeginPlot("SNR", ImVec2(-1, 300)))
                 {
-                    local_mag = sd.fft.fft_magnitude;
+                    ImPlot::SetupAxes("Frames", "EVM dB");
+                    ImPlot::SetupAxesLimits(0, sd.stats.vec_size, 0, 100, ImGuiCond_Once);
+                    ImPlot::PlotLine("SNR", snr_render_buffer.data(), (int)samples_count);
+                    ImPlot::EndPlot();
                 }
-            }
-
-            static float sample_rate_ = sd.rx_bandwidth;
-            
-            if (!local_mag.empty())
-            {
-                std::vector<float> shifted(local_mag.size());
-                size_t half = local_mag.size() / 2;
-                for (size_t i = 0; i < half; i++)
-                {
-                    shifted[i] = local_mag[i + half];
-                    shifted[i + half] = local_mag[i];
-                }
-                static std::vector<float> freqs_(shifted.size());
-                for (int i = 0; i < freqs_.size(); ++i)
-                    freqs_[i] = (static_cast<float>(i) / static_cast<float>(freqs_.size()) - 0.5f) * sample_rate;
-                ImPlot::PlotLine("Magnitude",freqs_.data(), shifted.data(), shifted.size());
-            }
-            ImPlot::EndPlot();
-        }
-
-        ImGui::End();
-
-        ImGui::Begin("Other", nullptr, ImGuiWindowFlags_NoTitleBar);
-        {
-            static std::vector<float> snr_render_buffer(sd.snr_vec_size);
-            static std::vector<float> evm_render_buffer(sd.snr_vec_size);
-
-            int render_start = (sd.snr_vec_offset + 1) % sd.snr_vec_size;
-            int samples_count = sd.frames_processed;
-            if (samples_count > sd.snr_vec_size)
-                samples_count = sd.snr_vec_size;
-
-            for (int i = 0; i < samples_count; i++)
-            {
-                snr_render_buffer[i] = sd.SNR_vec[(render_start + i) % sd.snr_vec_size];
-                evm_render_buffer[i] = sd.EVM_vec[(render_start + i) % sd.snr_vec_size];
-            }
-
-            if (ImPlot::BeginPlot("Timing Offsets", ImVec2(-1, 300)))
-            {
-                ImPlot::PlotLine("Offset", sd.timing_offsets.data(), sd.timing_offsets.size());
-                ImPlot::EndPlot();
-            }
-
-            if (ImPlot::BeginPlot("SNR", ImVec2(-1, 300)))
-            {
-                ImPlot::PlotLine("SNR", snr_render_buffer.data(), samples_count);
-                ImPlot::EndPlot();
-            }
-
-            if (ImPlot::BeginPlot("EVM", ImVec2(-1, 300)))
-            {
-                ImPlot::PlotLine("EVM", evm_render_buffer.data(), samples_count);
-                ImPlot::EndPlot();
-            }
-        }
-
-        ImGui::End();
-
-        ImGui::Begin("Grid", nullptr, ImGuiWindowFlags_NoTitleBar);
-        {
-            const int N = sd.ofdm.n_subcarriers;
-            if (N > 0)
-            {
-                static float zoomX = 16.0f;
-                static float zoomY = 550.0f;
-
-                ImGui::BeginChild("GridScroll", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar);
-                {
-                    float cellSize = zoomX;
-                    float rowHeight = zoomY;
-
-                    ImVec2 startPos = ImGui::GetCursorScreenPos();
-                    ImDrawList *drawList = ImGui::GetWindowDrawList();
-
-                    ImU32 colorGuard = ImColor(70, 70, 70);
-                    ImU32 colorData = ImColor(0, 114, 189);
-                    ImU32 colorPilot = ImColor(255, 120, 0);
-
-                    const auto &pilots = sd.ofdm.pilot_idx;
-
-                    for (int i = 0; i < N; ++i)
-                    {
-                        int k = (i + N / 2) % N;
-
-                        ImU32 cellColor = colorData;
-                        if (is_guard(k, sd))
-                        {
-                            cellColor = colorGuard;
-                        }
-                        else if (std::find(pilots.begin(), pilots.end(), k) != pilots.end())
-                        {
-                            cellColor = colorPilot;
-                        }
-
-                        ImVec2 p_min = ImVec2(startPos.x + i * cellSize, startPos.y);
-                        ImVec2 p_max = ImVec2(p_min.x + cellSize - 1.0f, p_min.y + rowHeight);
-
-                        drawList->AddRectFilled(p_min, p_max, cellColor);
-
-                        if (cellSize > 2.0f)
-                        {
-                            drawList->AddRect(p_min, p_max, ImColor(0, 0, 0, 150));
-                        }
-
-                        if (ImGui::IsMouseHoveringRect(p_min, p_max))
-                        {
-                            ImGui::BeginTooltip();
-                            ImGui::Text("Array Index [k]: %d", k);
-                            ImGui::Text("Screen Pos [i]: %d", i);
-                            if (k == 0)
-                                ImGui::Text("Type: DC (Center of Spectrum)");
-                            ImGui::EndTooltip();
-                        }
-                    }
-
-                    ImGui::Dummy(ImVec2(N * cellSize, rowHeight));
-                }
-                ImGui::SliderFloat("Cell Width", &zoomX, 1.0f, 50.0f);
-                ImGui::SliderFloat("Cell Height", &zoomY, 5.0f, 200.0f);
-                ImGui::EndChild();
             }
         }
         ImGui::End();
@@ -694,37 +503,21 @@ int main()
         SDL_GL_SwapWindow(window);
     }
 
-    if (sd.flags.g_running)
-    {
-        sd.flags.g_running = false;
-        if (Back.joinable())
-        {
-            Back.join();
-        }
-    }
+    sd.allRunning = false;
+    if (sdr_thread.joinable())
+        sdr_thread.join();
+    if (dsp_thread.joinable())
+        dsp_thread.join();
 
-    if (config.sdr)
-    {
-        SoapySDRDevice_deactivateStream(config.sdr, config.rxStream, 0, 0);
-        SoapySDRDevice_deactivateStream(config.sdr, config.txStream, 0, 0);
-        SoapySDRDevice_closeStream(config.sdr, config.rxStream);
-        SoapySDRDevice_closeStream(config.sdr, config.txStream);
-        SoapySDRDevice_unmake(config.sdr);
-        config.sdr = nullptr;
-    }
-
-    if (sd.fft.ofdm_ifft_plan)
-        fftw_destroy_plan(sd.fft.ofdm_ifft_plan);
-    if (sd.fft.ifft_in)
-        fftw_free(sd.fft.ifft_in);
-    if (sd.fft.ifft_out)
-        fftw_free(sd.fft.ifft_out);
-    if (sd.fft.ofdm_fft_plan)
-        fftw_destroy_plan(sd.fft.ofdm_fft_plan);
-    if (sd.fft.ofdm_rx_in)
-        fftw_free(sd.fft.ofdm_rx_in);
-    if (sd.fft.ofdm_rx_out)
-        fftw_free(sd.fft.ofdm_rx_out);
+    fftwf_destroy_plan(sd.fftplans.plan_spectre);
+    fftwf_destroy_plan(sd.fftplans.plan_fft);
+    fftwf_destroy_plan(sd.fftplans.plan_ifft);
+    fftwf_free(sd.fftplans.in_spectre);
+    fftwf_free(sd.fftplans.out_spectre);
+    fftwf_free(sd.fftplans.in_fft);
+    fftwf_free(sd.fftplans.in_ifft);
+    fftwf_free(sd.fftplans.out_fft);
+    fftwf_free(sd.fftplans.out_ifft);
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL2_Shutdown();

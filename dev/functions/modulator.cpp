@@ -1,99 +1,105 @@
-#include "logger.hpp"
-#include "modulator.h"
-#include "ofdm_core.h"
+#include "common.hpp"
+#include "modulation.hpp"
 
-std::vector<std::complex<float>> modulator(std::vector<int16_t> bits, int len_bits, std::string type)
+std::vector<std::complex<float>> modulator(const std::vector<int16_t> &input, SignalModulation type)
 {
     float I, Q;
+    std::vector<std::complex<float>> symbols;
+    std::vector<int16_t> bits = input;
 
-    if (type == "QAM::2")
+    switch (type)
     {
-        std::vector<std::complex<float>> symbols(len_bits);
-        for (int i = 0; i < len_bits; ++i)
+    case SignalModulation::BPSK: {
+        symbols.resize(bits.size());
+
+        for (size_t i = 0; i < bits.size(); ++i)
         {
             I = 1 - 2 * bits[i];
             Q = 1 - 2 * bits[i];
 
             symbols[i] = std::complex<float>(I, Q) / sqrtf(2);
         }
-        return symbols;
+
+        break;
     }
-    else if (type == "QAM::4")
-    {
-        if (len_bits % 2 != 0)
-        {
-            perror("L_Bits % 2 != 0");
-            exit(1);
-        }
-        std::vector<std::complex<float>> symbols(len_bits / 2);
-        for (int i = 0; i < len_bits / 2; ++i)
+
+    case SignalModulation::QPSK: {
+        while (bits.size() % 2 != 0)
+            bits.push_back(0);
+
+        symbols.resize(bits.size() / 2);
+
+        for (size_t i = 0; i < bits.size() / 2; ++i)
         {
             I = 1 - 2 * bits[2 * i];
             Q = 1 - 2 * bits[2 * i + 1];
 
             symbols[i] = std::complex<float>(I, Q) / sqrtf(2);
         }
-        return symbols;
+
+        break;
     }
-    else if (type == "QAM::16")
-    {
-        if (len_bits % 4 != 0)
-        {
-            perror("L_Bits % 4 != 0");
-            exit(1);
-        }
-        std::vector<std::complex<float>> symbols(len_bits / 4);
-        for (int i = 0; i < len_bits / 4; ++i)
+
+    case SignalModulation::QAM16: {
+        while (bits.size() % 4 != 0)
+            bits.push_back(0);
+
+        symbols.resize(bits.size() / 4);
+
+        for (size_t i = 0; i < bits.size() / 4; ++i)
         {
             I = (1.0 - 2.0 * bits[4 * i]) * (2.0 - (1.0 - 2.0 * bits[4 * i + 2]));
             Q = (1.0 - 2.0 * bits[4 * i + 1]) * (2.0 - (1.0 - 2.0 * bits[4 * i + 3]));
 
             symbols[i] = std::complex<float>(I, Q) / sqrtf(10);
         }
-        return symbols;
+
+        break;
     }
-    else if (type == "QAM::64")
-    {
-        if (len_bits % 6 != 0)
-        {
-            logs::dsp.warn("[MODULATOR] bits not % = 0");
-            exit(1);
-        }
-        std::vector<std::complex<float>> symbols(len_bits / 6);
-        for (int i = 0; i < len_bits / 6; ++i)
+
+    case SignalModulation::QAM64: {
+        while (bits.size() % 6 != 0)
+            bits.push_back(0);
+
+        symbols.resize(bits.size() / 6);
+
+        for (size_t i = 0; i < bits.size() / 6; ++i)
         {
             I = (1.0 - 2.0 * bits[6 * i]) * (4 - (1.0 - 2.0 * bits[6 * i + 2]) * (2 - (1.0 - 2.0 * bits[6 * i + 4])));
             Q = (1.0 - 2.0 * bits[6 * i + 1]) * (4 - (1.0 - 2.0 * bits[6 * i + 3]) * (2 - (1.0 - 2.0 * bits[6 * i + 5])));
 
             symbols[i] = std::complex<float>(I, Q) / sqrtf(42.0);
         }
-        return symbols;
+
+        break;
     }
-    else
-    {
-        perror("unluck");
-        exit(1);
+
+    default:
+        break;
     }
+
+    return symbols;
 }
 
-std::vector<int16_t> demodulator(const std::vector<std::complex<float>> &symbols, std::string type)
+std::vector<int16_t> demodulator(const std::vector<std::complex<float>> &symbols, SignalModulation mod_type)
 {
     std::vector<int16_t> bits;
+    if (symbols.empty())
+        return bits;
 
-    if (type == "QAM::2")
+    switch (mod_type)
     {
+    case SignalModulation::BPSK: {
         bits.resize(symbols.size());
         for (size_t i = 0; i < symbols.size(); ++i)
         {
             float val = symbols[i].real();
             bits[i] = (val > 0) ? 0 : 1;
         }
+        break;
     }
-    else if (type == "QAM::4")
-    {
-        if (symbols.empty())
-            return bits;
 
+    case SignalModulation::QPSK: {
         bits.resize(symbols.size() * 2);
         for (size_t i = 0; i < symbols.size(); ++i)
         {
@@ -103,12 +109,10 @@ std::vector<int16_t> demodulator(const std::vector<std::complex<float>> &symbols
             bits[2 * i] = (I > 0) ? 0 : 1;
             bits[2 * i + 1] = (Q > 0) ? 0 : 1;
         }
+        break;
     }
-    else if (type == "QAM::16")
-    {
-        if (symbols.empty())
-            return bits;
 
+    case SignalModulation::QAM16: {
         bits.resize(symbols.size() * 4);
         float threshold = 2.0f / sqrtf(10.0f);
 
@@ -122,12 +126,10 @@ std::vector<int16_t> demodulator(const std::vector<std::complex<float>> &symbols
             bits[4 * i + 1] = (Q > 0) ? 0 : 1;
             bits[4 * i + 3] = (fabsf(Q) > threshold) ? 1 : 0;
         }
+        break;
     }
-    else if (type == "QAM::64")
-    {
-        if (symbols.empty())
-            return bits;
 
+    case SignalModulation::QAM64: {
         bits.resize(symbols.size() * 6);
 
         const float norm = sqrtf(42.0f);
@@ -155,74 +157,9 @@ std::vector<int16_t> demodulator(const std::vector<std::complex<float>> &symbols
             bits[6 * i + 4] = (inner_I < 2.0f) ? 0 : 1;
             bits[6 * i + 5] = (inner_Q < 2.0f) ? 0 : 1;
         }
+        break;
     }
-    else
-    {
-        return {};
     }
 
     return bits;
-}
-
-std::vector<std::complex<float>> generate_header(size_t size, SharedData &sd)
-{
-    uint16_t num = size;
-    std::vector<int16_t> binary;
-    for (int i = 15; i >= 0; --i)
-    {
-        auto bit = (num >> i) & 1;
-        binary.push_back(static_cast<int16_t>(bit));
-    }
-
-    std::vector<std::complex<float>> preamble_symbols = modulator(binary, binary.size(), "QAM::2");
-    std::vector<std::complex<float>> freq_blocks = insert_pilots(preamble_symbols, sd);
-    std::vector<std::complex<float>> ofdm_header = ofdm_modulator(freq_blocks, sd);
-
-    return ofdm_header;
-}
-
-uint16_t decode_header(const std::vector<std::complex<float>> signal, SharedData &sd)
-{
-    std::vector<std::complex<float>> header_frame;
-
-    size_t N = sd.ofdm.n_subcarriers;
-    size_t CP = sd.ofdm.cp_len;
-
-    header_frame.insert(header_frame.begin(), signal.begin(), signal.begin() + N + CP);
-    header_frame = discard_cp(header_frame, sd);
-    header_frame = ofdm_equalize(header_frame, sd);
-
-    std::vector<int16_t> bits = demodulator(header_frame, "QAM::2");
-
-    uint16_t packet_len = 0;
-    for (size_t i = 0; i < 16 && i < bits.size(); ++i)
-    {
-        packet_len = (packet_len << 1) | (bits[i] & 1);
-    }
-
-    return packet_len;
-}
-
-int bits_per_symbol(std::string type)
-{
-    if (type == "QAM::2")
-    {
-        return 1;
-    }
-    else if (type == "QAM::4")
-    {
-        return 2;
-    }
-    else if (type == "QAM::16")
-    {
-        return 4;
-    }
-    else if (type == "QAM::64")
-    {
-        return 6;
-    }
-    else
-    {
-        return 1;
-    }
 }

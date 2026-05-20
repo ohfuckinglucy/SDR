@@ -1,292 +1,288 @@
-#include "common.h"
-#include "error_interleaving.hpp"
+#include "common.hpp"
+#include "fec.hpp"
+#include "functions.hpp"
 #include "logger.hpp"
-#include "modulator.h"
-#include "ofdm_core.h"
-#include "sdr_hw.h"
-#include "sync_freq.h"
-#include "sync_time.h"
+#include "modulation.hpp"
+#include "ofdm_core.hpp"
 
-void rx_back(SharedData &sd)
+#include <chrono>
+#include <cmath>
+#include <complex>
+#include <cstddef>
+#include <cstdint>
+#include <vector>
+
+void DSPThread(SharedData &sd)
 {
-    std::vector<std::complex<float>> local_raw_buffer;
-    std::vector<std::complex<float>> rx_buffer;
-    std::vector<std::complex<float>> prev_buf;
-
-    std::vector<float> local_fft_mag(sd.fft.FFT_SIZE);
-    sd.ofdm_sync.reference = generate_zc_preamble(sd);
-
     std::chrono::high_resolution_clock::time_point t_start, t_end;
 
-    long long total_duration_us = 0;
-    int frame_count = 0;
+    std::vector<std::complex<float>> raw_buffer;
+    std::vector<std::complex<float>> allbuff;
+    std::vector<std::complex<float>> dsp_buffer;
+    std::vector<int16_t> bits;
+    std::vector<float> spectrum_local;
 
-    sd.SNR_vec.resize(sd.snr_vec_size, 0);
-    sd.EVM_vec.resize(sd.snr_vec_size, 0);
-    sd.snr_vec_offset = sd.snr_vec_size - 1;
+    static SignalModulation last_mod = (SignalModulation)-1;
+    static std::vector<std::complex<float>> ref_constelation;
 
-    std::vector<int16_t> bits_bpsk = { 0, 1 };
-    std::vector<std::complex<float>> constellation_bpsk = modulator(bits_bpsk, 2, "QAM::2");
+    sd.stats.EVM_vec.resize(sd.stats.vec_size, 0);
+    sd.stats.SNR_vec.resize(sd.stats.vec_size, 0);
 
-    std::vector<int16_t> bits_qpsk = { 0, 0, 0, 1, 1, 0, 1, 1 };
-    std::vector<std::complex<float>> constellation_qpsk = modulator(bits_qpsk, 8, "QAM::4");
+    sd.stats.vec_offset = sd.stats.vec_size - 1;
 
-    std::vector<int16_t> bits_16qam;
-    for (int i = 0; i < 16; ++i)
+    generate_zc_preamble(sd);
+
+    while (sd.allRunning)
     {
-        bits_16qam.push_back((i >> 3) & 1);
-        bits_16qam.push_back((i >> 2) & 1);
-        bits_16qam.push_back((i >> 1) & 1);
-        bits_16qam.push_back(i & 1);
-    }
-    std::vector<std::complex<float>> constellation_16qam = modulator(bits_16qam, 64, "QAM::16");
+        sd.pipe.read(raw_buffer);
+        dsp_buffer.clear();
 
-    std::vector<int16_t> bits_64qam;
-    for (int i = 0; i < 64; ++i)
-    {
-        for (int b = 5; b >= 0; --b)
+        OFDMcfg local_cfg;
         {
-            bits_64qam.push_back((i >> b) & 1);
+            std::lock_guard<std::mutex> lock(sd.mtx);
+            local_cfg = sd.ofdmcfg;
         }
-    }
-    std::vector<std::complex<float>> constellation_64qam = modulator(bits_64qam, 384, "QAM::64");
 
-    while (sd.flags.g_running)
-    {
         t_start = std::chrono::high_resolution_clock::now();
-        std::string mod_type;
-        if (sd.flags.modulation_index == 0)
-            mod_type = "QAM::2";
-        else if (sd.flags.modulation_index == 1)
-            mod_type = "QAM::4";
-        else if (sd.flags.modulation_index == 2)
-            mod_type = "QAM::16";
-        else if (sd.flags.modulation_index == 3)
-            mod_type = "QAM::64";
-        else
-            mod_type = "QAM::2";
 
-        if (!sd.pipe.read(rx_buffer))
+        size_t copy_size = std::min(raw_buffer.size(), (size_t)sd.fftplans.N_spec);
+        for (size_t i = 0; i < copy_size; i++)
         {
-            asm volatile("pause" ::: "memory");
-            continue;
+            sd.fftplans.in_spectre[i][0] = raw_buffer[i].real();
+            sd.fftplans.in_spectre[i][1] = raw_buffer[i].imag();
         }
 
-        if (sd.flags.ofdm_time_est)
+        spectrum_local = Spectrum_calulations(std::ref(sd), raw_buffer);
+
+        if (sd.hdr.modulation != last_mod)
         {
-            sd.ofdm.sig_begin = zadoff_sync(rx_buffer, sd) + sd.ofdm_sync.timing_offset;
-            if (sd.ofdm.sig_begin > (rx_buffer.size() / 3) - (sd.ofdm.n_subcarriers + sd.ofdm.cp_len))
+            ref_constelation = get_reference_constellation(sd.hdr.modulation);
+            last_mod = sd.hdr.modulation;
+        }
+
+        if (sd.dspflags.PSS)
+        {
+            local_cfg.best_idx = zadoff_sync(raw_buffer, std::ref(sd));
+            if (local_cfg.best_idx + local_cfg.N + local_cfg.CP + 10 < (int)raw_buffer.size())
+                dsp_buffer.insert(dsp_buffer.end(), raw_buffer.begin() + local_cfg.best_idx + local_cfg.N + local_cfg.CP + local_cfg.mystery_offset, raw_buffer.end());
+        }
+        else
+            dsp_buffer = std::move(raw_buffer);
+
+        if (sd.dspflags.CFO)
+            dsp_buffer = cfo_est(dsp_buffer, sd);
+
+        if (sd.dspflags.FFT)
+        {
+            Header hdr = parse_header(dsp_buffer, sd);
+            if (!hdr.is_valid)
+                continue;
+
+            sd.hdr = hdr;
+
+            if (!allbuff.empty() || hdr.is_valid)
             {
-                if (prev_buf.empty())
+                allbuff.insert(allbuff.end(), dsp_buffer.begin(), dsp_buffer.end());
+
+                uint16_t bps = bits_per_sym(sd.hdr.modulation);
+                if (bps > 0)
                 {
-                    prev_buf = std::move(rx_buffer);
-                    continue;
+                    int usable = 0;
+                    for (int k = 0; k < local_cfg.N; k++)
+                        if (!is_guard(k, local_cfg.N))
+                            usable++;
+                    usable -= local_cfg.pilot_idx.size();
+                    if (usable > 0)
+                    {
+                        size_t bits_per_ofdm = usable * bps;
+                        size_t num_data_syms = (sd.hdr.num_samples + bits_per_ofdm - 1) / bits_per_ofdm;
+                        size_t needed = (num_data_syms + 1) * (local_cfg.N + local_cfg.CP);
+                        if (allbuff.size() < needed)
+                            continue;
+                    }
                 }
                 else
+                    continue;
+            }
+
+            dsp_buffer = std::move(allbuff);
+            allbuff.clear();
+
+            if (dsp_buffer.size() >= static_cast<size_t>(local_cfg.N))
+                dsp_buffer.erase(dsp_buffer.begin(), dsp_buffer.begin() + local_cfg.N + local_cfg.CP);
+
+            dsp_buffer = FFT_ofdm(dsp_buffer, sd);
+        }
+
+        if (sd.dspflags.EQ)
+        {
+            dsp_buffer = ofdm_equalize(dsp_buffer, sd);
+
+            bits = demodulator(dsp_buffer, sd.hdr.modulation);
+
+            uint16_t bps = bits_per_sym(sd.hdr.modulation);
+            if (bps > 0)
+            {
+                size_t syms_needed = (sd.hdr.num_samples + bps - 1) / bps;
+                if (dsp_buffer.size() > syms_needed)
+                    dsp_buffer.resize(syms_needed);
+            }
+            if (bits.size() > sd.hdr.num_samples)
+                bits.resize(sd.hdr.num_samples);
+
+            bool crc_ok = verifyCRC16(bits);
+
+            sd.stats.total_block_proccesed++;
+            if (!crc_ok && sd.stats.total_block_proccesed != 0)
+            {
+                sd.stats.error_block++;
+                sd.stats.BLER = static_cast<float>(sd.stats.error_block) / static_cast<float>(sd.stats.total_block_proccesed);
+            }
+
+            if (sd.hdr.sig_type == SignalType::Text)
+            {
+                std::string text;
+                text.reserve(bits.size() / 8);
+                for (size_t i = 0; i + 8 <= bits.size(); i += 8)
                 {
-                    rx_buffer.insert(rx_buffer.begin(), prev_buf.begin(), prev_buf.end());
-                    prev_buf.clear();
+                    char c = 0;
+                    for (int b = 0; b < 8; ++b)
+                        c |= (bits[i + b] << b);
+                    text += c;
                 }
+                sd.decoded_text = text;
             }
         }
 
-        sd.buffer_without_dsp = rx_buffer;
-
-        if (sd.ofdm.sig_begin >= 0 && sd.flags.cut_begin && sd.ofdm.sig_begin < 1920 - (sd.ofdm.n_subcarriers + sd.ofdm.cp_len))
+        if (!sd.dspflags.EQ)
         {
-            local_raw_buffer = remove_pss(std::ref(sd), rx_buffer);
-        }
-        else
-        {
-            local_raw_buffer = std::move(rx_buffer);
+            sd.stats.total_block_proccesed = 0;
+            sd.stats.error_block = 0;
+            sd.stats.BLER = 0;
         }
 
-        if (sd.flags.cfo_est_enabled)
-            local_raw_buffer = cfo_est(local_raw_buffer, sd);
+        sd.stats.EVM = EVM_calculate(dsp_buffer, ref_constelation);
+        sd.stats.SNR = -20.0f * log10f(sd.stats.EVM / 100.0f);
 
-        if (local_raw_buffer.empty() || local_raw_buffer.size() < 128)
-            continue;
+        sd.stats.vec_offset = (sd.stats.vec_offset - 1 + sd.stats.vec_size) % sd.stats.vec_size;
+        sd.stats.EVM_vec[sd.stats.vec_offset] = sd.stats.EVM;
+        sd.stats.SNR_vec[sd.stats.vec_offset] = sd.stats.SNR;
 
-        sd.ofdm_sync.packet_len = 0;
-        if (sd.flags.header_dec)
-        {
-            sd.ofdm_sync.packet_len = decode_header(local_raw_buffer, sd);
-            if (sd.ofdm.n_subcarriers + sd.ofdm.cp_len < (int)local_raw_buffer.size())
-                local_raw_buffer.erase(local_raw_buffer.begin(), local_raw_buffer.begin() + sd.ofdm.n_subcarriers + sd.ofdm.cp_len);
-        }
-
-        if (sd.flags.ofdm_fft_enabled)
-            local_raw_buffer = discard_cp(local_raw_buffer, sd);
-
-        if (sd.flags.ofdm_eq_enabled)
-            local_raw_buffer = ofdm_equalize(local_raw_buffer, sd);
-
-        if (sd.flags.header_dec && sd.flags.ofdm_fft_enabled && sd.flags.ofdm_eq_enabled)
-            if (sd.ofdm_sync.packet_len > 0 && sd.ofdm_sync.packet_len < (int)local_raw_buffer.size())
-                local_raw_buffer.erase(local_raw_buffer.begin() + sd.ofdm_sync.packet_len, local_raw_buffer.end());
-        if (mod_type == "QAM::2")
-            sd.EVM = calculate_EVM(local_raw_buffer, constellation_bpsk);
-        else if (mod_type == "QAM::4")
-            sd.EVM = calculate_EVM(local_raw_buffer, constellation_qpsk);
-        else if (mod_type == "QAM::16")
-            sd.EVM = calculate_EVM(local_raw_buffer, constellation_16qam);
-        else if (mod_type == "QAM::64")
-            sd.EVM = calculate_EVM(local_raw_buffer, constellation_64qam);
-
-        sd.SNR_DB = SNR_calculation(sd.buffer_without_dsp);
-
-        sd.SNR_vec[sd.snr_vec_offset] = sd.SNR_DB;
-        sd.EVM_vec[sd.snr_vec_offset] = sd.EVM;
-
-        sd.snr_vec_offset = (sd.snr_vec_offset - 1 + sd.snr_vec_size) % sd.snr_vec_size;
-        sd.frames_processed++;
-
-        size_t n = std::min(sd.buffer_without_dsp.size(), sd.fft.FFT_SIZE);
-        for (size_t i = 0; i < n; i++)
-        {
-            sd.fft.fft_in[i][0] = sd.buffer_without_dsp[sd.buffer_without_dsp.size() - n + i].real();
-            sd.fft.fft_in[i][1] = sd.buffer_without_dsp[sd.buffer_without_dsp.size() - n + i].imag();
-        }
-        for (size_t i = n; i < sd.fft.FFT_SIZE; i++)
-        {
-            sd.fft.fft_in[i][0] = 0.0;
-            sd.fft.fft_in[i][1] = 0.0;
-        }
-        fftw_execute(sd.fft.spectrum_plan);
-
-        for (size_t i = 0; i < sd.fft.FFT_SIZE; i++)
-        {
-            float re = sd.fft.fft_out[i][0];
-            float im = sd.fft.fft_out[i][1];
-            local_fft_mag[i] = log10(re * re + im * im + 1e-10);
-        }
-        sd.flags.fft_ready = true;
+        sd.stats.frames_processed++;
 
         {
             std::lock_guard<std::mutex> lock(sd.mtx);
-            sd.buffer = std::move(local_raw_buffer);
-
-            sd.interleaved_rx_bits = demodulator(sd.buffer, mod_type);
-
-            if (!sd.interleaved_rx_bits.empty() && sd.flags.ofdm_eq_enabled)
-            {
-                sd.rx_bits = hamming_decoder(sd.interleaved_rx_bits, std::ref(sd));
-
-                if (!sd.rx_bits.empty())
-                {
-                    
-                }
-
-                bool crc_ok = verifyCRC16(sd.rx_bits);
-
-                if (crc_ok)
-                {
-                    pic_write(sd.rx_bits);
-                }
-
-                sd.bler_total_blocks++;
-                if (!crc_ok)
-                    sd.bler_error_blocks++;
-
-                if (sd.bler_total_blocks > 0)
-                    sd.bler_value = (float)sd.bler_error_blocks / sd.bler_total_blocks;
-
-                if (sd.bler_total_blocks > 10000)
-                {
-                    sd.bler_total_blocks = 0;
-                    sd.bler_error_blocks = 0;
-                    sd.bler_value = 0;
-                }
-            }
-            else
-            {
-                sd.bler_total_blocks = 0;
-                sd.bler_error_blocks = 0;
-                sd.bler_value = 0;
-            }
-
-            sd.fft.fft_magnitude = local_fft_mag;
+            sd.gui_buffer = dsp_buffer;
+            sd.spectrum = spectrum_local;
+            sd.gui_timing_offsets = sd.timing_offsets;
         }
 
         t_end = std::chrono::high_resolution_clock::now();
-
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_start).count();
-        total_duration_us += duration;
-        frame_count++;
-
-        sd.avg_time = (float)total_duration_us / frame_count;
-        total_duration_us = 0;
-        frame_count = 0;
+        auto dur = std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_start).count();
+        sd.avg_dsp_time = static_cast<float>(dur);
     }
 }
 
-void SDRStream(SharedData &sd, SDRConfig &config)
+void SDRStream(SharedData &sd, SDR &sdr)
 {
-    if (!config.sdr || !config.rxStream || !config.rx_buffer)
-    {
-        logs::sdr.error("ERROR: SDR config!");
-        sd.flags.g_running = false;
-        return;
-    }
-
     size_t blk = 0;
+    bool transmission_active = false;
 
-    std::chrono::high_resolution_clock::time_point t_start, t_end;
-    long long total_duration_us = 0;
-    int frame_count = 0;
-
-    while (sd.flags.g_running)
+    while (sd.allRunning)
     {
-        t_start = std::chrono::high_resolution_clock::now();
+        auto t_start = std::chrono::high_resolution_clock::now();
 
-        reconfig_sdr(std::ref(sd), std::ref(config));
-        signal_generate(std::ref(sd), std::ref(config));
-
-        size_t frame_len = sd.tx_samples.size() / 2;
-        size_t num_blocks = (frame_len + config.tx_mtu - 1) / config.tx_mtu;
-
-        if (blk < num_blocks)
-            blk = 0;
-
-        void *rx_buffs[] = { config.rx_buffer };
-        int flags = 0;
-        long long timeNs = 0;
-
-        int sr = SoapySDRDevice_readStream(config.sdr, config.rxStream, rx_buffs, config.rx_mtu, &flags, &timeNs, TIMEOUT);
-        if (sd.flags.loopback_flag)
-        {
-            const void *tx_buffs[] = { sd.tx_samples.data() + 2 * blk * config.tx_mtu };
-            int flags = SOAPY_SDR_HAS_TIME;
-            long long tx_time = timeNs + TX_DELAY;
-
-            SoapySDRDevice_writeStream(config.sdr, config.txStream, tx_buffs, config.tx_mtu, &flags, tx_time, TIMEOUT);
-            ++blk;
-        }
-
-        int16_t *data_ptr = static_cast<int16_t *>(config.rx_buffer);
-        if (!data_ptr)
-            continue;
-
+        sdr.updateConfig(sd);
+        int sr = sdr.receive();
         if (sr < 0)
         {
-            logs::sdr.error("Failed to read stream!");
-            continue;
+            logs::sdr.critical("Failed to read stream");
+            exit(1);
+        }
+
+        if (sd.tx_once)
+        {
+            blk = 0;
+            transmission_active = true;
+            sd.tx_once = false;
+
+            if (sd.type_of_signal == SignalType::File && sd.tx_file_loaded)
+                sd.tx_file_chunk_idx = 0;
+
+            sd.sig_changed = true;
+        }
+
+        if (sd.tx_continuous)
+            transmission_active = true;
+
+        if (transmission_active && blk == 0 && sd.sig_changed)
+        {
+            if (sd.type_of_signal == SignalType::File && sd.tx_file_loaded)
+            {
+                sd.is_first = (sd.tx_file_chunk_idx == 0);
+                sd.is_last = (sd.tx_file_chunk_idx == sd.tx_file_total_chunks - 1);
+            }
+            else
+            {
+                sd.is_first = true;
+                sd.is_last = !sd.tx_continuous;
+            }
+
+            sd.tx_samples = GenerateSignal(sd);
+            sd.sig_changed = false;
+
+            if (sd.type_of_signal == SignalType::File && sd.tx_file_loaded)
+                sd.tx_file_chunk_idx++;
+        }
+
+        if (transmission_active && !sd.tx_samples.empty())
+        {
+            size_t frame_len = sd.tx_samples.size() / 2;
+            size_t num_blocks = (frame_len + sdr.tx_mtu - 1) / sdr.tx_mtu;
+
+            if (blk < num_blocks)
+            {
+                size_t offset = 2 * blk * sdr.tx_mtu;
+                size_t count = std::min((size_t)(2 * sdr.tx_mtu), sd.tx_samples.size() - offset);
+
+                std::fill(sdr.tx_buffer.begin(), sdr.tx_buffer.end(), 0);
+                std::copy(sd.tx_samples.begin() + offset, sd.tx_samples.begin() + offset + count, sdr.tx_buffer.begin());
+
+                sdr.send();
+                blk++;
+            }
+
+            if (blk >= num_blocks)
+            {
+                blk = 0;
+
+                if (sd.type_of_signal == SignalType::File && sd.tx_file_loaded)
+                {
+                    if (sd.tx_file_chunk_idx < sd.tx_file_total_chunks)
+                        sd.sig_changed = true;
+                    else
+                    {
+                        sd.tx_file_chunk_idx = 0;
+                        transmission_active = false;
+                        logs::sdr.info("File TX complete");
+                    }
+                }
+                else if (!sd.tx_continuous)
+                    transmission_active = false;
+                else
+                    sd.sig_changed = true;
+            }
         }
 
         std::vector<std::complex<float>> tmp;
         tmp.reserve(sr);
         for (int i = 0; i < sr; ++i)
-            tmp.emplace_back((float)data_ptr[2 * i], (float)data_ptr[2 * i + 1]);
+            tmp.emplace_back(static_cast<float>(sdr.rx_buffer[2 * i]), static_cast<float>(sdr.rx_buffer[2 * i + 1]));
+
         sd.pipe.write(tmp);
 
-        t_end = std::chrono::high_resolution_clock::now();
-
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_start).count();
-        total_duration_us += duration;
-        frame_count++;
-
-        sd.avg_stream_time = (float)total_duration_us / frame_count;
-        total_duration_us = 0;
-        frame_count = 0;
+        auto t_end = std::chrono::high_resolution_clock::now();
+        auto dur = std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_start).count();
+        sd.avg_stream_time = static_cast<float>(dur);
     }
 }

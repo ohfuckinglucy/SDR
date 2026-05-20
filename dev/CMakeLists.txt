@@ -20,7 +20,7 @@ find_package(SoapySDR REQUIRED)
 find_package(PkgConfig REQUIRED)
 find_package(OpenMP REQUIRED)
 
-pkg_check_modules(FFTW3 REQUIRED fftw3)
+pkg_check_modules(FFTW3f REQUIRED fftw3f)
 
 include_directories(${INCLUDE_DIR})
 include_directories(${SDL2_INCLUDE_DIRS})
@@ -93,10 +93,10 @@ target_link_libraries(rx.elf PRIVATE
     ${SoapySDR_LIBRARIES}
     OpenMP::OpenMP_CXX
     spdlog::spdlog
-    fftw3
+    fftw3f
 )
 
-target_include_directories(rx.elf PRIVATE ${INCLUDE_DIR} fftw3)
+target_include_directories(rx.elf PRIVATE ${INCLUDE_DIR} fftw3f)
 
 target_link_libraries(tx.elf PRIVATE
     imgui
@@ -106,7 +106,7 @@ target_link_libraries(tx.elf PRIVATE
     ${GLEW_LIBRARIES}
     ${SoapySDR_LIBRARIES}
     spdlog::spdlog
-    fftw3
+    fftw3f
 )
 
 target_include_directories(tx.elf PRIVATE ${INCLUDE_DIR})
