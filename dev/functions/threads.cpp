@@ -152,6 +152,31 @@ void DSPThread(SharedData &sd)
                 }
                 sd.decoded_text = text;
             }
+
+            if (sd.hdr.sig_type == SignalType::File && crc_ok)
+            {
+                std::vector<uint8_t> bytes;
+                bytes.reserve(bits.size() / 8);
+                for (size_t i = 0; i + 8 <= bits.size(); i += 8)
+                {
+                    uint8_t c = 0;
+                    for (int b = 0; b < 8; ++b)
+                        c |= (bits[i + b] << b);
+                    bytes.push_back(c);
+                }
+                if (sd.hdr.flag & FrameFlag::IsFirst)
+                    sd.rx_file_chunks_buf.clear();
+                sd.rx_file_chunks_buf.insert(
+                    sd.rx_file_chunks_buf.end(),
+                    bytes.begin(), bytes.end()
+                );
+                if (sd.hdr.flag & FrameFlag::IsLast)
+                {
+                    SaveReceivedFile(sd);
+                    sd.file_received = true;
+                    sd.rx_file_name = "image.png";
+                }
+            }
         }
 
         if (!sd.dspflags.EQ)
