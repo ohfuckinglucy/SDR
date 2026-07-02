@@ -61,7 +61,6 @@ set(APP_SOURCES
     ${SRC_DIR}/main_gui.cpp
     ${FUNC_DIR}/modulator.cpp
     ${FUNC_DIR}/ofdm_core.cpp
-    ${FUNC_DIR}/sdr_hw.cpp
     ${FUNC_DIR}/sync_freq.cpp
     ${FUNC_DIR}/sync_time.cpp
     ${FUNC_DIR}/functions.cpp
@@ -73,7 +72,6 @@ set(TX_SOURCES
     ${SRC_DIR}/main_tx.cpp
     ${FUNC_DIR}/modulator.cpp
     ${FUNC_DIR}/ofdm_core.cpp
-    ${FUNC_DIR}/sdr_hw.cpp
     ${FUNC_DIR}/sync_freq.cpp
     ${FUNC_DIR}/sync_time.cpp
     ${FUNC_DIR}/functions.cpp

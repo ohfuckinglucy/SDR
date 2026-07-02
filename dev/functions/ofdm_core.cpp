@@ -4,12 +4,8 @@
 #include <complex>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <fftw3.h>
-
-// #include <algorithm>
-// #include <cmath>
-// #include <cstddef>
-// #include <fftw3.h>
 
 bool is_guard(int k, int N)
 {
