@@ -1,5 +1,6 @@
 *.elf
 /dev/build
 /dev/work/__pycache__
+/dev/imgui.ini
 .vscode
 .cache

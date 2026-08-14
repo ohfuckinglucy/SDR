@@ -114,17 +114,19 @@ struct SDRcfg
 struct FFTPlans
 {
     int N_spec = 1920;
-    fftwf_complex *in_spectre;
-    fftwf_complex *out_spectre;
-    fftwf_plan plan_spectre;
+    fftwf_complex *in_spectre = nullptr;
+    fftwf_complex *out_spectre = nullptr;
+    fftwf_plan plan_spectre = nullptr;
 
-    fftwf_complex *in_ifft;
-    fftwf_complex *out_ifft;
-    fftwf_plan plan_ifft;
+    fftwf_complex *in_ifft = nullptr;
+    fftwf_complex *out_ifft = nullptr;
+    fftwf_plan plan_ifft = nullptr;
 
-    fftwf_complex *in_fft;
-    fftwf_complex *out_fft;
-    fftwf_plan plan_fft;
+    fftwf_complex *in_fft = nullptr;
+    fftwf_complex *out_fft = nullptr;
+    fftwf_plan plan_fft = nullptr;
+
+    int plan_N = 0;
 };
 
 struct OFDMcfg
@@ -152,9 +154,9 @@ struct DSPFlags
 
 struct Stats
 {
-    float EVM;
+    float EVM = 0;
     std::vector<float> EVM_vec;
-    float SNR;
+    float SNR = 0;
     std::vector<float> SNR_vec;
 
     size_t vec_offset = 0;
@@ -170,9 +172,9 @@ struct Header
 {
     bool is_valid = false;
     size_t num_samples = 0;
-    SignalModulation modulation;
-    uint8_t flag;
-    SignalType sig_type;
+    SignalModulation modulation = SignalModulation::BPSK;
+    uint8_t flag = 0;
+    SignalType sig_type = SignalType::Random;
 };
 
 static constexpr size_t FILE_CHUNK_BYTES = 100;
@@ -198,8 +200,8 @@ struct SharedData
 
     DoubleBuffer<std::vector<std::complex<float>>> pipe;
 
-    SignalType type_of_signal;
-    SignalModulation type_of_modulation;
+    SignalType type_of_signal = SignalType::Random;
+    SignalModulation type_of_modulation = SignalModulation::QPSK;
 
     Header hdr;
 
@@ -318,41 +320,50 @@ class SDR {
 
     void updateConfig(SharedData &sd)
     {
-        auto &cfg = sd.SDR;
+        SDRcfg cfg;
+        uint16_t mask;
+        {
+            std::lock_guard<std::mutex> lock(sd.mtx);
+            cfg = sd.SDR;
+            mask = sd.SDR.dirty_mask;
+        }
 
-        if (cfg.dirty_mask & SDRField::RxGain)
+        if (mask & SDRField::RxGain)
             device->setGain(SOAPY_SDR_RX, 0, cfg.rx_gain);
 
-        if (cfg.dirty_mask & SDRField::TxGain)
+        if (mask & SDRField::TxGain)
             device->setGain(SOAPY_SDR_TX, 0, cfg.tx_gain);
 
-        if (cfg.dirty_mask & SDRField::RxFreq)
+        if (mask & SDRField::RxFreq)
             device->setFrequency(SOAPY_SDR_RX, 0, cfg.rx_freq);
 
-        if (cfg.dirty_mask & SDRField::TxFreq)
+        if (mask & SDRField::TxFreq)
             device->setFrequency(SOAPY_SDR_TX, 0, cfg.tx_freq);
 
-        if (cfg.dirty_mask & SDRField::RxBW)
+        if (mask & SDRField::RxBW)
             device->setBandwidth(SOAPY_SDR_RX, 0, cfg.rx_bw);
 
-        if (cfg.dirty_mask & SDRField::TxBW)
+        if (mask & SDRField::TxBW)
             device->setBandwidth(SOAPY_SDR_TX, 0, cfg.tx_bw);
 
-        if (cfg.dirty_mask & SDRField::RxSampleRate)
+        if (mask & SDRField::RxSampleRate)
         {
             device->deactivateStream(rxStream, 0, 0);
             device->setSampleRate(SOAPY_SDR_RX, 0, cfg.rx_sample_rate);
             device->activateStream(rxStream, 0, 0);
         }
 
-        if (cfg.dirty_mask & SDRField::TxSampleRate)
+        if (mask & SDRField::TxSampleRate)
         {
             device->deactivateStream(txStream, 0, 0);
             device->setSampleRate(SOAPY_SDR_TX, 0, cfg.tx_sample_rate);
             device->activateStream(txStream, 0, 0);
         }
 
-        cfg.dirty_mask = 0;
+        {
+            std::lock_guard<std::mutex> lock(sd.mtx);
+            sd.SDR.dirty_mask &= ~mask;
+        }
     }
 };
 

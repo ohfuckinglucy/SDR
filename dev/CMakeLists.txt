@@ -6,13 +6,13 @@ set(CMAKE_BUILD_TYPE Debug)
 set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Директории
+# Directories
 set(THIRD_PARTY_DIR ${PROJECT_SOURCE_DIR}/../thirdparty)
 set(FUNC_DIR ${PROJECT_SOURCE_DIR}/functions)
 set(SRC_DIR ${PROJECT_SOURCE_DIR}/src)
 set(INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include)
 
-# OpenGL/GLEW/SoapiSDR
+# OpenGL/GLEW/SoapySDR
 find_package(SDL2 REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
@@ -94,7 +94,7 @@ target_link_libraries(rx.elf PRIVATE
     fftw3f
 )
 
-target_include_directories(rx.elf PRIVATE ${INCLUDE_DIR} fftw3f)
+target_include_directories(rx.elf PRIVATE ${INCLUDE_DIR} ${FFTW3f_INCLUDE_DIRS})
 
 target_link_libraries(tx.elf PRIVATE
     imgui
@@ -107,7 +107,7 @@ target_link_libraries(tx.elf PRIVATE
     fftw3f
 )
 
-target_include_directories(tx.elf PRIVATE ${INCLUDE_DIR})
+target_include_directories(tx.elf PRIVATE ${INCLUDE_DIR} ${FFTW3f_INCLUDE_DIRS})
 
 target_compile_options(rx.elf PRIVATE -O3 -mavx2 -ffast-math)
 target_compile_options(tx.elf PRIVATE -O3 -mavx2 -ffast-math)

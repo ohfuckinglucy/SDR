@@ -6,9 +6,15 @@
 
 std::vector<std::complex<float>> generate_zc_preamble(SharedData &sd)
 {
-    const int N = sd.ofdmcfg.N;
+    int N;
+    int16_t q;
+    {
+        std::lock_guard<std::mutex> lock(sd.mtx);
+        N = sd.fftplans.plan_N;
+        q = sd.ofdmcfg.q;
+    }
+
     const int n_zc = 127;
-    const int q = sd.ofdmcfg.q;
     const std::complex<float> j(0, 1);
 
     std::vector<std::complex<float>> freq(N, { 0.0f, 0.0f });
@@ -19,6 +25,9 @@ std::vector<std::complex<float>> generate_zc_preamble(SharedData &sd)
         int k = start_idx + i;
         int idx = (k < 0) ? (N + k) : k;
 
+        if (idx < 0 || idx >= N)
+            continue;
+
         if (is_guard(idx, N))
             continue;
 
@@ -28,14 +37,21 @@ std::vector<std::complex<float>> generate_zc_preamble(SharedData &sd)
 
     std::vector<std::complex<float>> time_domain = ofdm_modulator(freq, sd);
 
-    sd.ofdmcfg.zc_reference = time_domain;
+    {
+        std::lock_guard<std::mutex> lock(sd.mtx);
+        sd.ofdmcfg.zc_reference = time_domain;
+    }
 
     return time_domain;
 }
 
 int zadoff_sync(const std::vector<std::complex<float>> &signal, SharedData &sd)
 {
-    const auto &zc = sd.ofdmcfg.zc_reference;
+    std::vector<std::complex<float>> zc;
+    {
+        std::lock_guard<std::mutex> lock(sd.mtx);
+        zc = sd.ofdmcfg.zc_reference;
+    }
 
     size_t signal_len = signal.size();
     size_t zc_len = zc.size();
@@ -43,8 +59,11 @@ int zadoff_sync(const std::vector<std::complex<float>> &signal, SharedData &sd)
     if (signal_len < zc_len)
         return -1;
 
-    if (sd.timing_offsets.size() != signal_len - zc_len + 1)
-        sd.timing_offsets.resize(signal_len - zc_len + 1);
+    {
+        std::lock_guard<std::mutex> lock(sd.mtx);
+        if (sd.timing_offsets.size() != signal_len - zc_len + 1)
+            sd.timing_offsets.resize(signal_len - zc_len + 1);
+    }
 
     float max_norm = -1.f;
     int best_idx = 0;
@@ -52,30 +71,33 @@ int zadoff_sync(const std::vector<std::complex<float>> &signal, SharedData &sd)
     const float *sig_ptr = reinterpret_cast<const float *>(signal.data());
     const float *zc_ptr = reinterpret_cast<const float *>(zc.data());
 
-    for (size_t n = 0; n <= signal_len - zc_len; ++n)
     {
-        float sum_re = 0.f;
-        float sum_im = 0.f;
-
-        for (size_t k = 0; k < zc_len; ++k)
+        std::lock_guard<std::mutex> lock(sd.mtx);
+        for (size_t n = 0; n <= signal_len - zc_len; ++n)
         {
-            float sig_re = sig_ptr[2 * (n + k)];
-            float sig_im = sig_ptr[2 * (n + k) + 1];
+            float sum_re = 0.f;
+            float sum_im = 0.f;
 
-            float zc_re = zc_ptr[2 * k];
-            float zc_im = zc_ptr[2 * k + 1];
+            for (size_t k = 0; k < zc_len; ++k)
+            {
+                float sig_re = sig_ptr[2 * (n + k)];
+                float sig_im = sig_ptr[2 * (n + k) + 1];
 
-            sum_re += sig_re * zc_re + sig_im * zc_im;
-            sum_im += sig_im * zc_re - sig_re * zc_im;
-        }
+                float zc_re = zc_ptr[2 * k];
+                float zc_im = zc_ptr[2 * k + 1];
 
-        float cur_norm = sum_re * sum_re + sum_im * sum_im;
-        sd.timing_offsets[n] = cur_norm;
+                sum_re += sig_re * zc_re + sig_im * zc_im;
+                sum_im += sig_im * zc_re - sig_re * zc_im;
+            }
 
-        if (cur_norm > max_norm)
-        {
-            max_norm = cur_norm;
-            best_idx = (int)n;
+            float cur_norm = sum_re * sum_re + sum_im * sum_im;
+            sd.timing_offsets[n] = cur_norm;
+
+            if (cur_norm > max_norm)
+            {
+                max_norm = cur_norm;
+                best_idx = (int)n;
+            }
         }
     }
 

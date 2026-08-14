@@ -23,6 +23,50 @@ bool is_guard(int k, int N)
     return false;
 }
 
+int usable_subcarriers(int N, size_t num_pilots)
+{
+    int usable = 0;
+    for (int k = 0; k < N; ++k)
+        if (!is_guard(k, N))
+            usable++;
+    return usable - static_cast<int>(num_pilots);
+}
+
+void ensure_fft_plans(SharedData &sd)
+{
+    std::lock_guard<std::mutex> lock(sd.mtx);
+
+    if (sd.fftplans.plan_spectre == nullptr)
+    {
+        sd.fftplans.in_spectre = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.fftplans.N_spec);
+        sd.fftplans.out_spectre = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.fftplans.N_spec);
+        sd.fftplans.plan_spectre = fftwf_plan_dft_1d(sd.fftplans.N_spec, sd.fftplans.in_spectre, sd.fftplans.out_spectre, FFTW_FORWARD, FFTW_ESTIMATE);
+    }
+
+    if (sd.fftplans.plan_N == sd.ofdmcfg.N)
+        return;
+
+    if (sd.fftplans.plan_N != 0)
+    {
+        fftwf_destroy_plan(sd.fftplans.plan_ifft);
+        fftwf_destroy_plan(sd.fftplans.plan_fft);
+        fftwf_free(sd.fftplans.in_ifft);
+        fftwf_free(sd.fftplans.out_ifft);
+        fftwf_free(sd.fftplans.in_fft);
+        fftwf_free(sd.fftplans.out_fft);
+    }
+
+    sd.fftplans.in_ifft = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.ofdmcfg.N);
+    sd.fftplans.out_ifft = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.ofdmcfg.N);
+    sd.fftplans.plan_ifft = fftwf_plan_dft_1d(sd.ofdmcfg.N, sd.fftplans.in_ifft, sd.fftplans.out_ifft, FFTW_BACKWARD, FFTW_ESTIMATE);
+
+    sd.fftplans.in_fft = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.ofdmcfg.N);
+    sd.fftplans.out_fft = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.ofdmcfg.N);
+    sd.fftplans.plan_fft = fftwf_plan_dft_1d(sd.ofdmcfg.N, sd.fftplans.in_fft, sd.fftplans.out_fft, FFTW_FORWARD, FFTW_ESTIMATE);
+
+    sd.fftplans.plan_N = sd.ofdmcfg.N;
+}
+
 void update_pilots(SharedData &sd)
 {
     sd.ofdmcfg.pilot_idx.clear();
@@ -67,8 +111,13 @@ void update_pilots(SharedData &sd)
 
 std::vector<std::complex<float>> insert_pilots(const std::vector<std::complex<float>> &symbols, SharedData &sd)
 {
-    const int N = sd.ofdmcfg.N;
-    const auto &pilots = sd.ofdmcfg.pilot_idx;
+    int N;
+    std::vector<uint8_t> pilots;
+    {
+        std::lock_guard<std::mutex> lock(sd.mtx);
+        N = sd.fftplans.plan_N;
+        pilots = sd.ofdmcfg.pilot_idx;
+    }
 
     std::vector<uint8_t> subcarrier_map(N, 0);
 
@@ -80,12 +129,7 @@ std::vector<std::complex<float>> insert_pilots(const std::vector<std::complex<fl
         if (p >= 0 && p < N)
             subcarrier_map[p] = 2;
 
-    int usable = 0;
-    for (int k = 0; k < N; ++k)
-        if (!is_guard(k, N))
-            usable++;
-
-    usable -= pilots.size();
+    int usable = usable_subcarriers(N, pilots.size());
     if (usable <= 0)
         return {};
 
@@ -127,12 +171,15 @@ std::vector<std::complex<float>> insert_pilots(const std::vector<std::complex<fl
 
 std::vector<std::complex<float>> ofdm_modulator(const std::vector<std::complex<float>> &freq_symbols, SharedData &sd)
 {
-    const int N = sd.ofdmcfg.N;
+    std::vector<std::complex<float>> ofdm_signal;
+
+    std::lock_guard<std::mutex> lock(sd.mtx);
+
+    const int N = sd.fftplans.plan_N;
     const int CP = sd.ofdmcfg.CP;
-    if (freq_symbols.size() % N != 0)
+    if (N <= 0 || freq_symbols.size() % N != 0)
         return {};
 
-    std::vector<std::complex<float>> ofdm_signal;
     ofdm_signal.reserve(freq_symbols.size() + (freq_symbols.size() / N) * CP);
 
     size_t ptr = 0;
@@ -161,11 +208,13 @@ std::vector<std::complex<float>> ofdm_modulator(const std::vector<std::complex<f
 
 std::vector<std::complex<float>> FFT_ofdm(const std::vector<std::complex<float>> &signal, SharedData &sd)
 {
-    const int Pl_len = sd.ofdmcfg.N;
+    std::lock_guard<std::mutex> lock(sd.mtx);
+
+    const int Pl_len = sd.fftplans.plan_N;
     const int CP_len = sd.ofdmcfg.CP;
     const int N = Pl_len + CP_len;
 
-    if (signal.size() < static_cast<size_t>(N) || signal.size() > 1000000)
+    if (Pl_len <= 0 || signal.size() < static_cast<size_t>(N) || signal.size() > 1000000)
         return {};
 
     const float norm = 1.0f / Pl_len;

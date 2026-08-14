@@ -18,35 +18,46 @@ int main()
 {
     struct SharedData sd = {};
     update_pilots(sd);
+    ensure_fft_plans(sd);
+
+    logs::gui.info("Looking for SDR devices...");
     auto devices = SDR::findDevices();
     if (devices.empty())
     {
-        logs::sdr.error("SDR doesn't found");
+        logs::sdr.error("No SDR devices found");
         return -1;
     }
 
     std::string device_uri = devices[0].at("uri");
+    logs::gui.info("Opening device: {}", device_uri);
     SDR sdr(device_uri);
+    logs::gui.info("Device opened");
 
-    sd.fftplans.in_spectre = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.fftplans.N_spec);
-    sd.fftplans.out_spectre = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.fftplans.N_spec);
-    sd.fftplans.plan_spectre = fftwf_plan_dft_1d(sd.fftplans.N_spec, sd.fftplans.in_spectre, sd.fftplans.out_spectre, FFTW_FORWARD, FFTW_ESTIMATE);
-
-    sd.fftplans.in_ifft = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.ofdmcfg.N);
-    sd.fftplans.out_ifft = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.ofdmcfg.N);
-    sd.fftplans.plan_ifft = fftwf_plan_dft_1d(sd.ofdmcfg.N, sd.fftplans.in_ifft, sd.fftplans.out_ifft, FFTW_BACKWARD, FFTW_ESTIMATE);
-
-    sd.fftplans.in_fft = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.ofdmcfg.N);
-    sd.fftplans.out_fft = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * sd.ofdmcfg.N);
-    sd.fftplans.plan_fft = fftwf_plan_dft_1d(sd.ofdmcfg.N, sd.fftplans.in_fft, sd.fftplans.out_fft, FFTW_FORWARD, FFTW_ESTIMATE);
-
+    logs::gui.info("Starting worker threads...");
     std::thread sdr_thread(SDRStream, std::ref(sd), std::ref(sdr));
     std::thread dsp_thread(DSPThread, std::ref(sd));
 
-    SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER);
+    logs::gui.info("Initializing SDL...");
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0)
+    {
+        logs::gui.critical("SDL_Init failed: {}", SDL_GetError());
+        return -1;
+    }
 
     SDL_Window *window = SDL_CreateWindow("Backend start", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1920, 1080, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+    if (window == nullptr)
+    {
+        logs::gui.critical("SDL_CreateWindow failed: {}", SDL_GetError());
+        return -1;
+    }
+    logs::gui.info("Window created");
+
     SDL_GLContext gl_context = SDL_GL_CreateContext(window);
+    if (gl_context == nullptr)
+    {
+        logs::gui.critical("SDL_GL_CreateContext failed: {}", SDL_GetError());
+        return -1;
+    }
     SDL_GL_SetSwapInterval(0);
 
     ImGui::CreateContext();
@@ -96,28 +107,40 @@ int main()
 
         if (ImGui::CollapsingHeader("Debug", ImGuiTreeNodeFlags_DefaultOpen))
         {
+            int best_idx = -1;
+            float cfo = 0.0f;
+            {
+                std::lock_guard<std::mutex> lock(sd.mtx);
+                best_idx = sd.ofdmcfg.best_idx;
+                cfo = sd.ofdmcfg.cfo_est;
+            }
             ImGui::Text("FPS: %.1f (%.3f ms)", io.Framerate, 1000.0f / io.Framerate);
             ImGui::Text("Stream latency: %.2f us", sd.avg_stream_time);
             ImGui::Text("DSP latency: %.2f us", sd.avg_dsp_time);
-            ImGui::Text("PSS Sync: %d", sd.dspflags.PSS ? sd.ofdmcfg.best_idx : -1);
-            ImGui::Text("CFO: %.2f", sd.dspflags.CFO ? sd.ofdmcfg.cfo_est : -1);
+            ImGui::Text("PSS Sync: %d", sd.dspflags.PSS ? best_idx : -1);
+            ImGui::Text("CFO: %.2f", sd.dspflags.CFO ? cfo : -1);
             ImGui::Text("BLER: %.2f", sd.stats.BLER);
         }
 
         if (ImGui::CollapsingHeader("Header", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            ImGui::Text("Num Samples: %ld", sd.hdr.num_samples);
-            ImGui::Text("Modulation Type: %s", GetModulationName(sd.hdr.modulation));
+            Header hdr_copy;
+            {
+                std::lock_guard<std::mutex> lock(sd.mtx);
+                hdr_copy = sd.hdr;
+            }
+            ImGui::Text("Num Samples: %zu", hdr_copy.num_samples);
+            ImGui::Text("Modulation Type: %s", GetModulationName(hdr_copy.modulation));
 
             ImGui::Text("Flags:");
-            if (sd.hdr.flag != 0)
+            if (hdr_copy.flag != 0)
             {
-                if (sd.hdr.flag & FrameFlag::IsFirst)
+                if (hdr_copy.flag & FrameFlag::IsFirst)
                 {
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0, 1, 0, 1), "[FIRST]");
                 }
-                if (sd.hdr.flag & FrameFlag::IsLast)
+                if (hdr_copy.flag & FrameFlag::IsLast)
                 {
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(1, 0.5f, 0, 1), "[LAST]");
@@ -129,7 +152,7 @@ int main()
                 ImGui::TextDisabled("None");
             }
 
-            ImGui::Text("Signal Type: %s", GetSignalTypeName(sd.hdr.sig_type));
+            ImGui::Text("Signal Type: %s", GetSignalTypeName(hdr_copy.sig_type));
         }
 
         if (ImGui::CollapsingHeader("SDR Settings"))
@@ -168,6 +191,7 @@ int main()
             const char *names_sig[] = { "Random", "Text", "File" };
             if (ImGui::Combo("Type", &sel_sig, names_sig, 3))
             {
+                std::lock_guard<std::mutex> lock(sd.mtx);
                 sd.type_of_signal = static_cast<SignalType>(sel_sig);
                 sd.sig_changed = true;
             }
@@ -176,15 +200,24 @@ int main()
             {
                 static char tx_buf[1500] = "Text";
                 ImGui::InputTextMultiline("Message", tx_buf, sizeof(tx_buf), ImVec2(-1, 60));
-                sd.tx_text = tx_buf;
+                {
+                    std::lock_guard<std::mutex> lock(sd.mtx);
+                    sd.tx_text = tx_buf;
+                }
                 if (ImGui::IsItemDeactivatedAfterEdit())
+                {
+                    std::lock_guard<std::mutex> lock(sd.mtx);
                     sd.sig_changed = true;
+                }
 
                 ImGui::SeparatorText("Received");
                 ImGui::BeginChild("##rx_text", ImVec2(-1, 100), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
-                ImGui::TextWrapped("%s", sd.decoded_text.c_str());
-                if (sd.decoded_text.empty())
-                    ImGui::TextDisabled("Waiting for text...");
+                {
+                    std::lock_guard<std::mutex> lock(sd.mtx);
+                    ImGui::TextWrapped("%s", sd.decoded_text.c_str());
+                    if (sd.decoded_text.empty())
+                        ImGui::TextDisabled("Waiting for text...");
+                }
                 ImGui::EndChild();
             }
 
@@ -199,38 +232,60 @@ int main()
 
                 if (ImGui::Button("Load##file"))
                 {
-                    sd.tx_file_path = file_path_buf;
+                    {
+                        std::lock_guard<std::mutex> lock(sd.mtx);
+                        sd.tx_file_path = file_path_buf;
+                    }
                     if (LoadFileForTX(sd))
                     {
-                        sd.sig_changed = true;
+                        {
+                            std::lock_guard<std::mutex> lock(sd.mtx);
+                            sd.sig_changed = true;
+                        }
                         logs::sdr.info("File loaded: {} ({} bytes)", sd.tx_file_name, sd.tx_file_data.size());
                     }
                     else
                     {
-                        sd.tx_file_loaded = false;
+                        {
+                            std::lock_guard<std::mutex> lock(sd.mtx);
+                            sd.tx_file_loaded = false;
+                        }
                         logs::sdr.error("Failed to open file: {}", sd.tx_file_path);
                     }
                 }
 
-                if (sd.tx_file_loaded)
+                size_t tx_chunks_total = 0;
+                size_t tx_chunk_idx = 0;
+                bool file_loaded = false;
+                bool file_received = false;
+                {
+                    std::lock_guard<std::mutex> lock(sd.mtx);
+                    tx_chunks_total = sd.tx_file_total_chunks;
+                    tx_chunk_idx = sd.tx_file_chunk_idx;
+                    file_loaded = sd.tx_file_loaded;
+                    file_received = sd.file_received;
+                }
+
+                if (file_loaded)
                 {
                     size_t file_kb = sd.tx_file_data.size() / 1024;
                     size_t file_b = sd.tx_file_data.size() % 1024;
                     ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Loaded: %s  (%zu KB %zu B)", sd.tx_file_name.c_str(), file_kb, file_b);
-                    ImGui::Text("Chunks: %zu x %zu B", sd.tx_file_total_chunks, FILE_CHUNK_BYTES);
+                    ImGui::Text("Chunks: %zu x %zu B", tx_chunks_total, FILE_CHUNK_BYTES);
 
                     ImGui::Spacing();
                     if (ImGui::Button("Send File", ImVec2(-1, 0)))
                     {
+                        std::lock_guard<std::mutex> lock(sd.mtx);
                         sd.tx_file_chunk_idx = 0;
                         sd.tx_once = true;
                     }
 
-                    if (sd.tx_file_total_chunks > 0)
+                    if (tx_chunks_total > 0)
                     {
-                        float progress = static_cast<float>(sd.tx_file_chunk_idx) / static_cast<float>(sd.tx_file_total_chunks);
+                        float progress = static_cast<float>(tx_chunk_idx) / static_cast<float>(tx_chunks_total);
                         char prog_label[64];
-                        snprintf(prog_label, sizeof(prog_label), "%zu / %zu chunks", sd.tx_file_chunk_idx, sd.tx_file_total_chunks);
+                        snprintf(prog_label, sizeof(prog_label), "%zu / %zu chunks", tx_chunk_idx, tx_chunks_total);
                         ImGui::ProgressBar(progress, ImVec2(-1, 0), prog_label);
                     }
                 }
@@ -243,44 +298,62 @@ int main()
                 }
 
                 ImGui::SeparatorText("RX File");
-                if (sd.file_received)
+                if (file_received)
                 {
-                    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Received: %s", sd.rx_file_name.c_str());
-                    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Saved to: %s", sd.rx_file_save_path.c_str());
-                    ImGui::Text("Size: %zu bytes", sd.rx_file_chunks_buf.size());
-
-                    if (ImGui::Button("Clear##rxfile"))
                     {
-                        sd.file_received = false;
-                        sd.rx_file_name.clear();
-                        sd.rx_file_chunks_buf.clear();
-                        sd.rx_file_save_path.clear();
+                        std::lock_guard<std::mutex> lock(sd.mtx);
+                        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Received: %s", sd.rx_file_name.c_str());
+                        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Saved to: %s", sd.rx_file_save_path.c_str());
+                        ImGui::Text("Size: %zu bytes", sd.rx_file_chunks_buf.size());
+
+                        if (ImGui::Button("Clear##rxfile"))
+                        {
+                            sd.file_received = false;
+                            sd.rx_file_name.clear();
+                            sd.rx_file_chunks_buf.clear();
+                            sd.rx_file_save_path.clear();
+                        }
                     }
-                }
-                else if (!sd.rx_file_name.empty())
-                {
-                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Receiving: %s (%zu bytes so far...)", sd.rx_file_name.c_str(), sd.rx_file_chunks_buf.size());
-                    float prog = static_cast<float>(sd.rx_file_chunks_buf.size() % 10000) / 10000.0f;
-                    ImGui::ProgressBar(prog, ImVec2(-1, 0), "receiving...");
                 }
                 else
                 {
-                    ImGui::TextDisabled("Waiting for file...");
+                    size_t rx_size = 0;
+                    {
+                        std::lock_guard<std::mutex> lock(sd.mtx);
+                        rx_size = sd.rx_file_chunks_buf.size();
+                    }
+                    if (rx_size > 0)
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Receiving... (%zu bytes so far...)", rx_size);
+                        float prog = static_cast<float>(rx_size % 10000) / 10000.0f;
+                        ImGui::ProgressBar(prog, ImVec2(-1, 0), "receiving...");
+                    }
+                    else
+                    {
+                        ImGui::TextDisabled("Waiting for file...");
+                    }
                 }
             }
 
             if (sel_sig == 0)
             {
-                size_t old_num_samples = sd.num_samples;
-                ImGui::SliderInt("Bits Count", (int *)&sd.num_samples, 0, 10000);
-                if (old_num_samples != sd.num_samples)
-                    sd.sig_changed = true;
+                static int bits_count = 100;
+                if (ImGui::SliderInt("Bits Count", &bits_count, 0, 10000))
+                {
+                    std::lock_guard<std::mutex> lock(sd.mtx);
+                    if (sd.num_samples != static_cast<size_t>(bits_count))
+                    {
+                        sd.num_samples = static_cast<size_t>(bits_count);
+                        sd.sig_changed = true;
+                    }
+                }
             }
 
             static int sel_mod = 0;
             const char *names_mod[] = { "BPSK", "QPSK", "QAM16", "QAM64" };
             if (ImGui::Combo("Modulation", &sel_mod, names_mod, 4))
             {
+                std::lock_guard<std::mutex> lock(sd.mtx);
                 sd.type_of_modulation = static_cast<SignalModulation>(sel_mod);
                 sd.sig_changed = true;
             }
@@ -288,45 +361,59 @@ int main()
             if (sel_sig != 2)
             {
                 if (ImGui::Button("Send Burst"))
+                {
+                    std::lock_guard<std::mutex> lock(sd.mtx);
                     sd.tx_once = true;
+                }
                 ImGui::SameLine();
-                ImGui::Checkbox("Continuous TX", &sd.tx_continuous);
+                {
+                    bool cont = false;
+                    {
+                        std::lock_guard<std::mutex> lock(sd.mtx);
+                        cont = sd.tx_continuous;
+                    }
+                    if (ImGui::Checkbox("Continuous TX", &cont))
+                    {
+                        std::lock_guard<std::mutex> lock(sd.mtx);
+                        sd.tx_continuous = cont;
+                        sd.sig_changed = true;
+                    }
+                }
             }
         }
 
         if (ImGui::CollapsingHeader("OFDM Settings"))
         {
+            int N_val = sd.ofdmcfg.N;
+            int CP_val = sd.ofdmcfg.CP;
+            int q_val = sd.ofdmcfg.q;
+            int pilots_val = sd.ofdmcfg.num_pilots;
+
             bool changed = false;
 
-            if (ImGui::SliderInt("Symbol Len (N)", &sd.ofdmcfg.N, 64, 2048))
-            {
+            if (ImGui::SliderInt("Symbol Len (N)", &N_val, 64, 2048))
                 changed = true;
-                sd.sig_changed = true;
-            }
 
-            int max_cp = sd.ofdmcfg.N / 2;
-            if (ImGui::SliderInt("Prefix Len (CP)", &sd.ofdmcfg.CP, 4, max_cp))
-            {
+            int max_cp = N_val / 2;
+            if (ImGui::SliderInt("Prefix Len (CP)", &CP_val, 4, max_cp))
                 changed = true;
-                sd.sig_changed = true;
-            }
 
-            if (ImGui::SliderInt("ZC Root (q)", (int *)&sd.ofdmcfg.q, 1, 127))
-            {
+            if (ImGui::SliderInt("ZC Root (q)", &q_val, 1, 127))
                 changed = true;
-                sd.sig_changed = true;
-            }
 
-            if (ImGui::SliderInt("Pilots Count", &sd.ofdmcfg.num_pilots, 2, sd.ofdmcfg.N / 8))
-            {
+            if (ImGui::SliderInt("Pilots Count", &pilots_val, 2, N_val / 8))
                 changed = true;
-                sd.sig_changed = true;
-            }
 
             if (changed)
             {
-                sd.SDR.dirty_mask |= SDRField::OFDMConfig;
+                std::lock_guard<std::mutex> lock(sd.mtx);
+                sd.ofdmcfg.N = N_val;
+                sd.ofdmcfg.CP = CP_val;
+                sd.ofdmcfg.q = static_cast<int16_t>(q_val);
+                sd.ofdmcfg.num_pilots = pilots_val;
+                sd.sig_changed = true;
                 update_pilots(sd);
+                sd.SDR.dirty_mask |= SDRField::OFDMConfig;
             }
         }
 

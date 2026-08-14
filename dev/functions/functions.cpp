@@ -20,15 +20,18 @@ bool LoadFileForTX(SharedData &sd)
     if (sz <= 0)
         return false;
 
+    std::vector<uint8_t> data(static_cast<size_t>(sz));
     f.seekg(0, std::ios::beg);
-    sd.tx_file_data.resize(static_cast<size_t>(sz));
-    f.read(reinterpret_cast<char *>(sd.tx_file_data.data()), sz);
+    f.read(reinterpret_cast<char *>(data.data()), sz);
 
     std::filesystem::path p(sd.tx_file_path);
-    sd.tx_file_name = p.filename().string();
-    if (sd.tx_file_name.size() > 255)
-        sd.tx_file_name.resize(255);
+    std::string name = p.filename().string();
+    if (name.size() > 255)
+        name.resize(255);
 
+    std::lock_guard<std::mutex> lock(sd.mtx);
+    sd.tx_file_data = std::move(data);
+    sd.tx_file_name = std::move(name);
     sd.tx_file_total_chunks = (sd.tx_file_data.size() + FILE_CHUNK_BYTES - 1) / FILE_CHUNK_BYTES;
     sd.tx_file_chunk_idx = 0;
     sd.tx_file_loaded = true;
@@ -157,12 +160,14 @@ std::vector<int16_t> GenerateSignal(SharedData &sd)
 
 std::vector<float> Spectrum_calulations(SharedData &sd, std::vector<std::complex<float>> raw_buffer)
 {
-    for (size_t i = 0; i < raw_buffer.size(); i++)
+    size_t copy_size = std::min(raw_buffer.size(), static_cast<size_t>(sd.fftplans.N_spec));
+    for (size_t i = 0; i < copy_size; i++)
     {
         sd.fftplans.in_spectre[i][0] = raw_buffer[i].real();
         sd.fftplans.in_spectre[i][1] = raw_buffer[i].imag();
     }
 
+    std::lock_guard<std::mutex> lock(sd.mtx);
     fftwf_execute(sd.fftplans.plan_spectre);
 
     std::vector<float> spec_db(sd.fftplans.N_spec);
@@ -179,14 +184,33 @@ std::vector<float> Spectrum_calulations(SharedData &sd, std::vector<std::complex
 Header parse_header(const std::vector<std::complex<float>> &symbols, SharedData &sd)
 {
     Header h;
-    if (symbols.size() < static_cast<size_t>(sd.ofdmcfg.N + sd.ofdmcfg.CP))
+
+    int N, CP;
+    std::vector<uint8_t> pilots;
+    {
+        std::lock_guard<std::mutex> lock(sd.mtx);
+        N = sd.ofdmcfg.N;
+        CP = sd.ofdmcfg.CP;
+        pilots = sd.ofdmcfg.pilot_idx;
+    }
+
+    int usable = usable_subcarriers(N, pilots.size());
+    if (usable <= 0)
+        return h;
+
+    int header_syms = (HEADER_BITS + usable - 1) / usable;
+    size_t header_len = static_cast<size_t>(header_syms) * (N + CP);
+    if (symbols.size() < header_len)
         return h;
 
     std::vector<std::complex<float>> header;
-    header.insert(header.begin(), symbols.begin(), symbols.begin() + sd.ofdmcfg.N + sd.ofdmcfg.CP);
+    header.insert(header.begin(), symbols.begin(), symbols.begin() + header_len);
     header = FFT_ofdm(header, sd);
     header = ofdm_equalize(header, sd);
     std::vector<int16_t> bits = demodulator(header, SignalModulation::BPSK);
+
+    if (bits.size() < HEADER_BITS)
+        return h;
 
     uint8_t magic_val = 0;
     for (int i = 0; i < 8; ++i)
